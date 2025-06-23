@@ -1,0 +1,67 @@
+# Common variables for all hosts in the homelab
+
+# Network Configuration  
+homelab_subnet: "192.168.50.0/24"
+homelab_dns: "192.168.50.1"  
+homelab_gateway: "192.168.50.1"  # Router/gateway IP (actual TP-Link Omada router)
+
+# SSH Configuration
+ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+# System Configuration
+timezone: "Europe/Berlin"
+locale: "en_US.UTF-8"
+
+# Common packages to install on all nodes
+common_packages:
+  - curl
+  - wget
+  - vim
+  - htop
+  - net-tools
+  - unzip
+  - git
+  - ca-certificates
+  - software-properties-common
+  - apt-transport-https
+  - gnupg
+  - lsb-release
+
+# Storage Configuration - Hybrid approach (local-path + optional NFS)
+k8s_storage_ip: "192.168.50.20"
+storage_type: "hybrid"  # Support both local-path and NFS
+
+# Local storage configuration (k3s built-in)
+local_storage_path: "/opt/local-path-provisioner"
+
+# NFS storage configuration (optional)
+nfs_enabled: true  # Set to true to enable NFS server installation
+nfs_export_path: "/export/k8s"
+nfs_export_options: "*(rw,sync,no_subtree_check,no_root_squash)"
+nfs_client_packages:
+  - nfs-common
+
+# k3s Configuration
+k3s_version: "v1.28.5+k3s1"  # Pin version to prevent drift
+k3s_cluster_cidr: "10.42.0.0/16"
+k3s_service_cidr: "10.43.0.0/16"
+k3s_cluster_dns: "10.43.0.10"
+k3s_flannel_backend: "vxlan"
+
+# Container registry mirrors (optional)
+k3s_registries:
+  mirrors:
+    docker.io:
+      endpoint:
+        - "https://registry-1.docker.io"
+
+# Security settings
+disable_swap: true
+enable_firewall: false  # Simplified for lab environment
+
+# Backup and maintenance
+auto_update_packages: true
+reboot_after_update: false
+
+# Logging
+log_level: "info" 

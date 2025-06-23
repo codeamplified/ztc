@@ -1,0 +1,107 @@
+#cloud-config
+autoinstall:
+  version: 1
+  
+  # Early commands run before installer starts
+  early-commands:
+    - echo "Starting autoinstall for __HOSTNAME__"
+  
+  # Locale and keyboard configuration
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+    variant: ""
+    toggle: null
+  
+  # Network configuration - Static IP for homelab nodes  
+  # EXPERT FIX: Use intelligent name matching to prevent CNI race condition
+  # This matches eno1, enp1s0, enp3s0 but NOT cni0, flannel.1, veth*
+  network:
+    version: 2
+    ethernets:
+      # This single definition will match eno1, enp1s0, enp3s0, etc.
+      # but NOT cni0, flannel.1, or veth*
+      main_nic: # This is just a friendly name, it can be anything
+        match:
+          # Use a name glob to match common ethernet interface prefixes
+          name: "en*"
+        dhcp4: false
+        dhcp6: false
+        addresses:
+          - 192.168.50.__IP_OCTET__/24
+        routes:
+          - to: default
+            via: 192.168.50.1
+        nameservers:
+          addresses:
+            - 192.168.50.1
+            - 1.1.1.1
+            - 8.8.8.8
+  
+  # Storage configuration - LVM layout for flexibility
+  storage:
+    layout:
+      name: lvm
+      sizing-policy: all
+    swap:
+      size: 0
+  
+  # Identity - Ubuntu user matching Ansible inventory
+  identity:
+    hostname: __HOSTNAME__
+    username: ubuntu
+    # Password: configurable - for emergency access only
+    password: "__USER_PASSWORD_HASH__"
+  
+  # SSH configuration - Key-only authentication
+  ssh:
+    install-server: true
+    authorized-keys:
+      - __SSH_PUBLIC_KEY__
+    allow-pw: false
+  
+  # Package installation - Essential tools for k8s nodes
+  # Minimal package set - Ansible handles additional packages
+  packages:
+    - openssh-server
+    - python3
+    - curl
+    - ca-certificates
+  
+  # Snap packages - None for minimal footprint
+  snaps: []
+  
+  # Minimal late commands - Ansible handles system configuration
+  late-commands:
+    - echo "Completed autoinstall for __HOSTNAME__"
+  
+  # Error handling commands
+  error-commands:
+    - echo "Autoinstall failed for __HOSTNAME__" > /var/log/autoinstall-error.log
+    - journalctl --no-pager > /var/log/autoinstall-journal.log
+
+  # Post-installation user-data for the installed system  
+  user-data:
+    disable_root: true
+    package_update: true
+    package_upgrade: false
+    # Configure passwordless sudo for ubuntu user
+    write_files:
+      - path: /etc/sudoers.d/ubuntu-nopasswd
+        content: |
+          ubuntu ALL=(ALL) NOPASSWD:ALL
+        permissions: '0440'
+    runcmd:
+      - modprobe br_netfilter
+      - modprobe overlay
+      - sysctl --system
+      # EXPERT DIAGNOSTIC: Test internet connectivity before system declares ready
+      - ['ping', '-c', '4', '8.8.8.8']
+      - echo "System ready for Ansible provisioning" >> /var/log/cloud-init-complete.log
+      - echo "__HOSTNAME__ (192.168.50.__IP_OCTET__) ready" >> /var/log/cloud-init-complete.log
+    final_message: |
+      Cloud-init finished for __HOSTNAME__
+      System ready for Ansible provisioning
+      IP: 192.168.50.__IP_OCTET__
+      SSH: ssh ubuntu@192.168.50.__IP_OCTET__
+      Next: Run Ansible playbooks

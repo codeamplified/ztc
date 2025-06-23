@@ -1,0 +1,183 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+This is a Kubernetes homelab using k3s and Ansible. The infrastructure consists of:
+- 4-node k3s cluster (1 master, 3 workers) on mini PCs
+- Dedicated storage node for Kubernetes persistent volumes
+- Ansible for infrastructure provisioning and application deployment
+- "Bootstrappable USB" provisioning workflow
+
+## Common Commands
+
+### Infrastructure Provisioning
+```bash
+# Generate SSH key if needed (choose Ed25519 for better security)
+ssh-keygen -t ed25519 -C "your-email@example.com"
+# OR for RSA compatibility: ssh-keygen -t rsa -b 4096
+
+# Setup secrets first
+ansible-vault create ansible/inventory/secrets.yml
+# Make sure to set the correct SSH key path in secrets.yml:
+# ansible_ssh_private_key_file: ~/.ssh/id_ed25519  # or ~/.ssh/id_rsa
+
+# Create autoinstall USB drives for each node (interactive mode)
+make autoinstall-usb DEVICE=/dev/sdb
+
+# Or direct mode with parameters
+make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-master IP_OCTET=10
+make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-worker-01 IP_OCTET=11
+make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-worker-02 IP_OCTET=12
+make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-worker-03 IP_OCTET=13
+make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k8s-storage IP_OCTET=20
+
+# Boot nodes from USB drives (10-15 minutes each, unattended)
+# Nodes will automatically install and be ready for Ansible
+
+# Deploy infrastructure after all nodes are booted
+make infra
+```
+
+### Kubernetes Cluster Verification
+```bash
+# Verify cluster status
+make status
+
+# Verify storage
+make deploy-storage
+
+# NFS storage management (optional)
+make deploy-nfs     # Deploy NFS provisioner
+make enable-nfs     # Enable NFS on storage node
+make disable-nfs    # Disable NFS storage
+
+# Test basic functionality
+kubectl create deployment test --image=nginx
+kubectl get pods
+kubectl delete deployment test
+```
+
+### USB Provisioning
+```bash
+# Create autoinstall USB drives (interactive or parameterized)
+make autoinstall-usb DEVICE=/dev/sdb
+make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-master IP_OCTET=10
+
+# List available USB devices
+make usb-list
+```
+
+**Dual-USB Installation Process:**
+
+**One-time setup:**
+- Create main Ubuntu installer USB once: `make autoinstall-usb DEVICE=/dev/sdb` (reusable for all nodes)
+
+**Per-node process:**
+1. **Streamlined (recommended):** `make cidata-usb DEVICE=/dev/sdc HOSTNAME=k3s-worker-01 IP_OCTET=2`
+2. **Alternative (manual):** 
+   - Generate ISO: `make cidata-iso HOSTNAME=k3s-worker-01 IP_OCTET=2`
+   - Write to USB: `dd if=provisioning/downloads/k3s-worker-01-cidata.iso of=/dev/sdc bs=4M status=progress`
+3. Insert both USB drives into target node:
+   - USB #1: Main Ubuntu installer (reusable)
+   - USB #2: Node-specific cidata ISO
+4. Boot from USB #1 (Ubuntu installer) - use F12/F8/Delete for boot menu
+5. Ubuntu automatically detects the cidata ISO and prompts: **"Use autoinstall? (yes/no)"**
+6. Type **"yes"** - installation proceeds completely hands-off
+7. Wait 10-15 minutes for unattended installation
+8. Node reboots automatically when finished
+
+**Efficiency tip:** Keep the main Ubuntu USB, only recreate the small cidata ISO for each node.
+
+### Testing Commands
+```bash
+# Install prerequisites first (platform-specific)
+# macOS: brew install multipass ansible
+# Ubuntu/Linux: sudo snap install multipass && sudo apt install ansible
+
+# Validate configuration files
+make lint          # Lint Ansible playbooks and YAML files
+make validate      # Validate Kubernetes manifests
+
+# Test connectivity to nodes
+make ping          # Test Ansible connectivity to all nodes
+```
+
+### Node Management
+```bash
+# Gracefully remove node
+kubectl drain <node-name> --ignore-daemonsets
+kubectl delete node <node-name>
+
+# Check cluster status
+kubectl get nodes -o wide
+kubectl get pods --all-namespaces
+
+# Alternative: Use Makefile commands
+make restart-node NODE=<node-name>      # Restart specific node
+make drain-node NODE=<node-name>        # Drain node for maintenance
+make uncordon-node NODE=<node-name>     # Uncordon node after maintenance
+```
+
+## Architecture Overview
+
+### Directory Structure
+- `ansible/` - Infrastructure automation (roles, playbooks, inventory)
+- `kubernetes/` - Kubernetes manifests for applications
+  - `apps/` - Application deployments
+- `provisioning/` - USB creation scripts and cloud-init configs
+- `docs/` - Detailed documentation and guides
+
+### Key Configuration Files
+- `ansible/inventory/hosts.ini` - Ansible inventory with node definitions
+- `ansible/ansible.cfg` - Ansible configuration with vault settings
+- `provisioning/cloud-init/user-data` - Cloud-init template for node bootstrap
+
+## Secrets Management
+
+All secrets are managed locally and `.gitignore`'d:
+- **Ansible secrets**: `ansible/inventory/secrets.yml` (encrypted with ansible-vault)
+- **Kubernetes secrets**: `*-secret.yaml` files (unencrypted, local only)
+- **Templates provided**: `*.template` files show required secret structure
+
+**Important**: The setup uses the `ubuntu` user (not `admin`) for consistency with Ubuntu cloud images. Make sure your `secrets.yml` file has:
+- `ansible_user: ubuntu`
+- `ansible_ssh_private_key_file` set to your actual key path (`~/.ssh/id_ed25519` or `~/.ssh/id_rsa`)
+
+## Network Configuration
+
+- **Subnet**: 192.168.50.0/24 (update `ansible/inventory/hosts.ini` for your network)
+- **Node IPs**: 
+  - k3s-master: 192.168.50.10
+  - k3s-worker-01: 192.168.50.11
+  - k3s-worker-02: 192.168.50.12
+  - k3s-worker-03: 192.168.50.13
+  - k8s-storage: 192.168.50.20 (dedicated Kubernetes storage)
+- **Ingress**: Traefik (bundled with k3s)
+- **Storage**: local-path provisioner (k3s built-in) + NFS for persistent volumes (NFS enabled by default)
+
+### Debugging Commands
+```bash
+# Ansible debugging
+ansible all -m ping -vvv
+ansible-playbook <playbook> --check --diff
+
+# Kubernetes debugging
+kubectl get events --sort-by=.metadata.creationTimestamp
+kubectl describe pod <pod-name> -n <namespace>
+```
+
+## Important Notes
+
+- **Hardware Focus**: This is designed for physical mini PC deployment, not cloud
+- **Infrastructure as Code**: All changes should be managed through Ansible and version controlled
+- **Single Master**: Current setup uses single k3s master (can be upgraded to HA later)
+- **Local Secrets**: Never commit secrets to Git, use local files and templates
+
+## Development Guidelines
+
+- **YAML Validation**: 
+  - Use `make lint` to validate Ansible playbooks and YAML syntax
+  - Use `make validate` to validate Kubernetes manifests
+  - Run validation before deploying changes

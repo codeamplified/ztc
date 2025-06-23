@@ -1,0 +1,122 @@
+---
+# Common system configuration tasks for all nodes
+
+- name: Update apt cache
+  apt:
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Install common packages
+  apt:
+    name: "{{ common_packages }}"
+    state: present
+  become: true
+
+- name: Install NFS client packages for k8s storage (if NFS enabled)
+  apt:
+    name: "{{ nfs_client_packages }}"
+    state: present
+  become: true
+  when: 
+    - nfs_enabled | default(false)
+    - inventory_hostname in groups['k3s_master'] or inventory_hostname in groups['k3s_workers']
+
+- name: Set timezone
+  timezone:
+    name: "{{ timezone }}"
+  become: true
+
+- name: Set locale
+  locale_gen:
+    name: "{{ locale }}"
+    state: present
+  become: true
+
+- name: Disable swap
+  shell: |
+    swapoff -a
+    sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+  become: true
+  when: disable_swap
+
+- name: Enable IP forwarding
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    state: present
+    reload: true
+  become: true
+
+- name: Load br_netfilter module
+  modprobe:
+    name: br_netfilter
+    state: present
+  become: true
+
+- name: Make br_netfilter persistent
+  lineinfile:
+    path: /etc/modules-load.d/k8s.conf
+    line: br_netfilter
+    create: true
+  become: true
+
+- name: Configure bridge-nf-call-iptables
+  sysctl:
+    name: net.bridge.bridge-nf-call-iptables
+    value: '1'
+    state: present
+    reload: true
+  become: true
+
+- name: Configure bridge-nf-call-ip6tables
+  sysctl:
+    name: net.bridge.bridge-nf-call-ip6tables
+    value: '1'
+    state: present
+    reload: true
+  become: true
+
+- name: Create admin user
+  user:
+    name: "{{ ansible_user }}"
+    groups: sudo
+    shell: /bin/bash
+    create_home: true
+    password: "{{ admin_user_password | password_hash('sha512') }}"
+  become: true
+
+- name: Add SSH key for admin user
+  authorized_key:
+    user: "{{ ansible_user }}"
+    key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"
+    state: present
+  become: true
+
+- name: Configure sudo without password for admin user
+  lineinfile:
+    path: /etc/sudoers.d/admin
+    line: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL"
+    create: true
+    validate: 'visudo -cf %s'
+  become: true
+
+- name: Update all packages
+  apt:
+    upgrade: dist
+    autoremove: true
+    autoclean: true
+  become: true
+  when: auto_update_packages
+
+- name: Check if reboot is needed
+  stat:
+    path: /var/run/reboot-required
+  register: reboot_required_file
+
+- name: Reboot if needed
+  reboot:
+    msg: "Rebooting to complete system updates"
+    reboot_timeout: 300
+  become: true
+  when: reboot_required_file.stat.exists and reboot_after_update 

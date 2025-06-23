@@ -1,0 +1,93 @@
+---
+# Storage node configuration - Hybrid storage approach
+
+- name: Display storage configuration info
+  debug:
+    msg: |
+      ========================================
+      STORAGE NODE CONFIGURATION
+      ========================================
+      
+      🎯 STORAGE TYPE: {{ storage_type | default('hybrid') }}
+      - Server: {{ k8s_storage_ip }}
+      - Local-path: {{ local_storage_path | default('/opt/local-path-provisioner') }}
+      - NFS Enabled: {{ nfs_enabled | default(false) }}
+      {% if nfs_enabled | default(false) %}
+      - NFS Export: {{ nfs_export_path }}
+      {% endif %}
+
+- name: Create local storage directory
+  file:
+    path: "{{ local_storage_path | default('/opt/local-path-provisioner') }}"
+    state: directory
+    mode: '0755'
+  become: true
+
+# NFS Server Installation (conditional)
+- name: Install NFS server packages
+  apt:
+    name:
+      - nfs-kernel-server
+      - nfs-common
+    state: present
+    update_cache: true
+  become: true
+  when: nfs_enabled | default(false)
+
+- name: Create NFS export directory
+  file:
+    path: "{{ nfs_export_path }}"
+    state: directory
+    owner: nobody
+    group: nogroup
+    mode: '0755'
+  become: true
+  when: nfs_enabled | default(false)
+
+- name: Configure NFS exports
+  lineinfile:
+    path: /etc/exports
+    line: "{{ nfs_export_path }} {{ nfs_export_options }}"
+    create: true
+  become: true
+  notify:
+    - reload nfs-exports
+    - restart nfs-server
+  when: nfs_enabled | default(false)
+
+- name: Start and enable NFS services
+  systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  become: true
+  loop:
+    - nfs-server
+    - rpcbind
+  when: nfs_enabled | default(false)
+
+- name: Display final status
+  debug:
+    msg: |
+      ✅ STORAGE NODE READY
+      
+      📦 LOCAL-PATH STORAGE:
+      - Always available via k3s built-in provisioner
+      - Path: {{ local_storage_path | default('/opt/local-path-provisioner') }}
+      - Use for: Single-node workloads, fast I/O
+      
+      {% if nfs_enabled | default(false) %}
+      🌐 NFS STORAGE:
+      - Server: {{ k8s_storage_ip }}:{{ nfs_export_path }}
+      - Use for: Shared storage, multi-pod applications
+      - Next: Deploy nfs-subdir-external-provisioner to cluster
+      {% else %}
+      💡 NFS STORAGE (DISABLED):
+      - To enable: Set nfs_enabled: true in group_vars/all.yml
+      - Then re-run: ansible-playbook ansible/playbooks/01-k8s-storage-setup.yml
+      {% endif %}
+      
+      🚀 NEXT STEPS:
+      1. Deploy k3s cluster: ansible-playbook ansible/playbooks/02-k3s-cluster.yml
+      2. Verify storage classes: kubectl get storageclass
+      3. Test with persistent volume claims

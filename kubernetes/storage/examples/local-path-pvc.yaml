@@ -1,0 +1,37 @@
+---
+# Example: Local-Path Persistent Volume Claim
+# Uses k3s built-in local-path provisioner (always available)
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: local-path-example
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Test pod to verify local-path storage
+apiVersion: v1
+kind: Pod
+metadata:
+  name: local-path-test
+  namespace: default
+spec:
+  containers:
+  - name: test-container
+    image: busybox:1.35
+    command: ["/bin/sh"]
+    args: ["-c", "echo 'Hello from local-path storage!' > /data/test.txt && sleep 3600"]
+    volumeMounts:
+    - name: test-volume
+      mountPath: /data
+  volumes:
+  - name: test-volume
+    persistentVolumeClaim:
+      claimName: local-path-example
+  restartPolicy: Never

@@ -1,0 +1,176 @@
+---
+# k3s installation and configuration
+
+- name: Check if k3s is already installed
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_installed
+
+- name: Get current k3s version if installed
+  command: /usr/local/bin/k3s --version
+  register: k3s_current_version
+  failed_when: false
+  changed_when: false
+  when: k3s_installed.stat.exists
+
+- name: Display current k3s version
+  debug:
+    msg: "Current k3s version: {{ k3s_current_version.stdout.split()[2] if k3s_current_version.rc == 0 else 'Not installed' }}"
+  when: k3s_installed.stat.exists
+
+- name: Display target k3s version
+  debug:
+    msg: "Target k3s version: {{ k3s_version }}"
+
+- name: Download k3s installation script
+  get_url:
+    url: https://get.k3s.io
+    dest: /tmp/k3s-install.sh
+    mode: '0755'
+  when: not k3s_installed.stat.exists
+
+- name: Install k3s server (master node)
+  shell: |
+    INSTALL_K3S_VERSION={{ k3s_version }} \
+    INSTALL_K3S_EXEC="--flannel-backend={{ k3s_flannel_backend }} --node-ip={{ ansible_host }} --flannel-iface={{ ansible_default_ipv4.interface }} --cluster-cidr={{ k3s_cluster_cidr }} --service-cidr={{ k3s_service_cidr }} --cluster-dns={{ k3s_cluster_dns }}" \
+    K3S_TOKEN={{ k3s_token }} \
+    /tmp/k3s-install.sh
+  become: true
+  when: 
+    - not k3s_installed.stat.exists or (k3s_current_version.rc == 0 and k3s_version not in k3s_current_version.stdout)
+    - inventory_hostname in groups['k3s_master']
+  notify: restart k3s
+  register: k3s_master_install
+  retries: 3
+  delay: 10
+
+- name: Install k3s agent (worker nodes)
+  shell: |
+    INSTALL_K3S_VERSION={{ k3s_version }} \
+    INSTALL_K3S_EXEC="--node-ip={{ ansible_host }} --flannel-iface={{ ansible_default_ipv4.interface }}" \
+    K3S_URL=https://{{ hostvars[groups['k3s_master'][0]]['ansible_host'] }}:6443 \
+    K3S_TOKEN={{ k3s_token }} \
+    /tmp/k3s-install.sh
+  become: true
+  when: 
+    - not k3s_installed.stat.exists or (k3s_current_version.rc == 0 and k3s_version not in k3s_current_version.stdout)
+    - inventory_hostname in groups['k3s_workers']
+  notify: restart k3s-agent
+  register: k3s_worker_install
+  retries: 3
+  delay: 10
+
+- name: Start and enable k3s service (master)
+  systemd:
+    name: k3s
+    state: started
+    enabled: true
+  become: true
+  when: inventory_hostname in groups['k3s_master']
+
+- name: Start and enable k3s-agent service (workers)
+  systemd:
+    name: k3s-agent
+    state: started
+    enabled: true
+  become: true
+  when: inventory_hostname in groups['k3s_workers']
+
+- name: Wait for k3s to be ready
+  wait_for:
+    port: 6443
+    host: "{{ ansible_host }}"
+    timeout: 300
+  when: inventory_hostname in groups['k3s_master']
+
+- name: Verify k3s server is responding
+  command: /usr/local/bin/k3s kubectl get nodes
+  register: k3s_health_check
+  retries: 10
+  delay: 30
+  changed_when: false
+  become: true
+  when: inventory_hostname in groups['k3s_master']
+
+- name: Create .kube directory for admin user
+  file:
+    path: "/home/{{ ansible_user }}/.kube"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+  become: true
+  when: inventory_hostname in groups['k3s_master']
+
+- name: Copy k3s kubeconfig for admin user
+  copy:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: "/home/{{ ansible_user }}/.kube/config"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0600'
+    remote_src: true
+  become: true
+  when: inventory_hostname in groups['k3s_master']
+
+- name: Update kubeconfig server URL
+  replace:
+    path: "/home/{{ ansible_user }}/.kube/config"
+    regexp: 'https://127.0.0.1:6443'
+    replace: "https://{{ ansible_host }}:6443"
+  become: true
+  when: inventory_hostname in groups['k3s_master']
+
+- name: Fetch kubeconfig to control node
+  fetch:
+    src: "/home/{{ ansible_user }}/.kube/config"
+    dest: "~/.kube/{{ inventory_hostname }}-config"
+    flat: true
+  when: inventory_hostname in groups['k3s_master']
+
+- name: Get cluster node status
+  command: /usr/local/bin/k3s kubectl get nodes -o wide
+  register: k3s_nodes
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname in groups['k3s_master']
+
+- name: Display cluster nodes
+  debug:
+    msg: "{{ k3s_nodes.stdout_lines }}"
+  when: 
+    - inventory_hostname in groups['k3s_master']
+    - k3s_nodes is defined
+    - k3s_nodes.rc == 0
+
+- name: Check for version consistency across cluster
+  command: /usr/local/bin/k3s kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.nodeInfo.kubeletVersion}{"\n"}{end}'
+  register: k3s_node_versions
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname in groups['k3s_master']
+
+- name: Display node versions for consistency check
+  debug:
+    msg: "Node versions:\n{{ k3s_node_versions.stdout }}"
+  when: 
+    - inventory_hostname in groups['k3s_master']
+    - k3s_node_versions is defined
+    - k3s_node_versions.rc == 0
+
+- name: Fix CoreDNS configuration for reliable DNS
+  command: |
+    /usr/local/bin/k3s kubectl patch configmap coredns -n kube-system --type merge -p '{"data":{"Corefile":".:53 {\n    errors\n    health\n    ready\n    kubernetes cluster.local in-addr.arpa ip6.arpa {\n        pods insecure\n        fallthrough in-addr.arpa ip6.arpa\n    }\n    hosts /etc/coredns/NodeHosts {\n        ttl 60\n        reload 15s\n        fallthrough\n    }\n    prometheus :9153\n    cache 30\n    loop\n    reload\n    loadbalance\n    import /etc/coredns/custom/*.override\n}\nimport /etc/coredns/custom/*.server\n"}}'
+  become: true
+  when: inventory_hostname in groups['k3s_master']
+  retries: 3
+  delay: 10
+  changed_when: true
+
+- name: Restart CoreDNS to apply configuration
+  command: /usr/local/bin/k3s kubectl delete pod -n kube-system -l k8s-app=kube-dns
+  become: true
+  when: inventory_hostname in groups['k3s_master']
+  retries: 3
+  delay: 10
+  changed_when: true 

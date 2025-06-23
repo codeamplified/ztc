@@ -1,0 +1,59 @@
+---
+# Example: NFS Persistent Volume Claim
+# Requires NFS provisioner to be deployed first
+# Only works if NFS is enabled on storage node
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-example
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteMany  # NFS supports shared access
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Test pod to verify NFS storage
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nfs-test-1
+  namespace: default
+spec:
+  containers:
+  - name: test-container
+    image: busybox:1.35
+    command: ["/bin/sh"]
+    args: ["-c", "echo 'Hello from NFS storage (pod 1)!' > /shared/test1.txt && sleep 3600"]
+    volumeMounts:
+    - name: shared-volume
+      mountPath: /shared
+  volumes:
+  - name: shared-volume
+    persistentVolumeClaim:
+      claimName: nfs-example
+  restartPolicy: Never
+---
+# Second test pod to verify shared access
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nfs-test-2
+  namespace: default
+spec:
+  containers:
+  - name: test-container
+    image: busybox:1.35
+    command: ["/bin/sh"]
+    args: ["-c", "echo 'Hello from NFS storage (pod 2)!' > /shared/test2.txt && cat /shared/test*.txt && sleep 3600"]
+    volumeMounts:
+    - name: shared-volume
+      mountPath: /shared
+  volumes:
+  - name: shared-volume
+    persistentVolumeClaim:
+      claimName: nfs-example
+  restartPolicy: Never

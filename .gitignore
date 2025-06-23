@@ -1,0 +1,33 @@
+# Ansible Secrets
+ansible/inventory/secrets.yml
+.vault_pass
+
+# Kubernetes/Helm Secrets  
+*-secret.yaml
+*-secret.yml
+*/values-secret.yaml
+*/values-secret.yml
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Kubeconfig files (if stored locally)
+kubeconfig*
+*.kubeconfig
+
+# Helm secrets plugin
+secrets.yaml
+
+# AI tools and configurations
+.claude/
+
+# Downloads directory
+provisioning/downloads/

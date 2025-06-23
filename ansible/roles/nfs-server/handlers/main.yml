@@ -1,0 +1,18 @@
+---
+# Handlers for NFS server role
+
+- name: restart nfs-server
+  systemd:
+    name: nfs-server
+    state: restarted
+  become: true
+
+- name: reload nfs-exports
+  command: exportfs -ra
+  become: true
+
+- name: restart smbd
+  systemd:
+    name: smbd
+    state: restarted
+  become: true 

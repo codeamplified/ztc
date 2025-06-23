@@ -1,0 +1,112 @@
+---
+# Playbook to install and configure k3s Kubernetes cluster
+
+- name: Configure k3s Master Node
+  hosts: k3s_master
+  gather_facts: true
+  vars_files:
+    - ../inventory/secrets.yml
+  serial: 1  # Install master first
+
+  pre_tasks:
+    - name: Update package cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+      become: true
+
+  roles:
+    - common
+    - k3s
+
+  post_tasks:
+    - name: Wait for k3s API server to be ready
+      command: /usr/local/bin/k3s kubectl get nodes
+      register: k3s_api_check
+      until: k3s_api_check.rc == 0
+      retries: 30
+      delay: 10
+      changed_when: false
+      become: true
+
+    - name: Display master node status
+      debug:
+        msg: "k3s master node is ready at https://{{ ansible_host }}:6443"
+
+- name: Configure k3s Worker Nodes
+  hosts: k3s_workers
+  gather_facts: true
+  vars_files:
+    - ../inventory/secrets.yml
+
+  pre_tasks:
+    - name: Update package cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+      become: true
+
+    - name: Wait for master node to be ready
+      wait_for:
+        host: "{{ hostvars[groups['k3s_master'][0]]['ansible_host'] }}"
+        port: 6443
+        timeout: 300
+
+  roles:
+    - common
+    - k3s
+
+  post_tasks:
+    - name: Wait for worker nodes to join cluster
+      pause:
+        seconds: 30
+
+- name: Verify Cluster Status
+  hosts: k3s_master
+  gather_facts: false
+  vars_files:
+    - ../inventory/secrets.yml
+
+  tasks:
+    - name: Get all cluster nodes
+      command: /usr/local/bin/k3s kubectl get nodes -o wide
+      register: cluster_nodes
+      changed_when: false
+      become: true
+
+    - name: Display cluster status
+      debug:
+        msg: "{{ cluster_nodes.stdout_lines }}"
+
+    - name: Check cluster health
+      command: /usr/local/bin/k3s kubectl get componentstatuses
+      register: cluster_health
+      changed_when: false
+      failed_when: false
+      become: true
+
+    - name: Display cluster health
+      debug:
+        msg: "{{ cluster_health.stdout_lines }}"
+
+    - name: Create kubeconfig on control node
+      copy:
+        content: "{{ lookup('file', '~/.kube/' + inventory_hostname + '-config') }}"
+        dest: "~/.kube/config"
+        mode: '0600'
+      delegate_to: localhost
+      become: false
+
+    - name: Display success message
+      debug:
+        msg: |
+          k3s cluster setup completed successfully!
+          
+          Master node: {{ ansible_host }}:6443
+          Worker nodes: {{ groups['k3s_workers'] | length }}
+          
+          Kubeconfig has been copied to your control node at ~/.kube/config
+          
+          You can now use kubectl to manage your cluster:
+          kubectl get nodes
+          kubectl get pods --all-namespaces 

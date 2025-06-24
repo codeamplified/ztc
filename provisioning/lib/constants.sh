@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shared constants for homelab provisioning scripts
+# Shared constants for Zero Touch Cluster provisioning scripts
 
 # Ubuntu Configuration
 readonly UBUNTU_VERSION="24.04.2"

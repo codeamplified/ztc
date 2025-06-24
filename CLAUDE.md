@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Kubernetes homelab using k3s and Ansible. The infrastructure consists of:
+Zero Touch Cluster is a Kubernetes homelab automation project using k3s and Ansible. The infrastructure consists of:
 - 4-node k3s cluster (1 master, 3 workers) on mini PCs
 - Dedicated storage node for Kubernetes persistent volumes
 - Ansible for infrastructure provisioning and application deployment
@@ -124,10 +124,18 @@ make uncordon-node NODE=<node-name>     # Uncordon node after maintenance
 
 ### Directory Structure
 - `ansible/` - Infrastructure automation (roles, playbooks, inventory)
-- `kubernetes/` - Kubernetes manifests for applications
-  - `apps/` - Application deployments
+- `kubernetes/` - Kubernetes configuration
+  - `system/` - System components deployed via Helm (monitoring, storage, ArgoCD)
+  - `argocd-apps/` - ArgoCD Application definitions for GitOps workloads
 - `provisioning/` - USB creation scripts and cloud-init configs
 - `docs/` - Detailed documentation and guides
+
+### Hybrid GitOps Architecture
+- **System Components**: Deployed via Helm charts (monitoring, storage, ArgoCD)
+- **Application Workloads**: Deployed via ArgoCD from private repositories
+- **Storage Strategy**: 
+  - System components use local-path for performance
+  - Applications can use nfs-client for shared persistent data
 
 ### Key Configuration Files
 - `ansible/inventory/hosts.ini` - Ansible inventory with node definitions
@@ -155,7 +163,9 @@ All secrets are managed locally and `.gitignore`'d:
   - k3s-worker-03: 192.168.50.13
   - k8s-storage: 192.168.50.20 (dedicated Kubernetes storage)
 - **Ingress**: Traefik (bundled with k3s)
-- **Storage**: local-path provisioner (k3s built-in) + NFS for persistent volumes (NFS enabled by default)
+- **Storage**: Hybrid approach - local-path (default) + NFS enabled
+  - **local-path**: Fast local storage for monitoring, single-pod workloads
+  - **nfs-client**: Shared storage for multi-pod applications, persistent data
 
 ### Debugging Commands
 ```bash
@@ -168,10 +178,41 @@ kubectl get events --sort-by=.metadata.creationTimestamp
 kubectl describe pod <pod-name> -n <namespace>
 ```
 
+## Storage Strategy
+
+### When to Use Each Storage Class
+
+**local-path (default)**
+- System monitoring (Prometheus, Grafana, AlertManager)  
+- Logs and temporary data
+- Single-pod applications requiring fast I/O
+- Any workload that doesn't need to be shared across nodes
+
+**nfs-client (enabled by default)**
+- Multi-pod applications requiring shared storage
+- Databases that need persistent, shared volumes  
+- File sharing applications
+- Backup storage
+- Any data that should survive pod restarts across different nodes
+
+### Storage Commands
+```bash
+# View available storage classes
+kubectl get storageclass
+
+# NFS management (both storage classes enabled by default)
+make enable-nfs      # Re-enable NFS storage if disabled 
+make disable-nfs     # Disable NFS storage (keeps local-path)
+
+# Storage verification
+make deploy-storage  # Verify storage setup
+```
+
 ## Important Notes
 
 - **Hardware Focus**: This is designed for physical mini PC deployment, not cloud
-- **Infrastructure as Code**: All changes should be managed through Ansible and version controlled
+- **Hybrid GitOps**: System components via Helm, applications via ArgoCD
+- **Infrastructure as Code**: All changes should be managed through Ansible and version controlled  
 - **Single Master**: Current setup uses single k3s master (can be upgraded to HA later)
 - **Local Secrets**: Never commit secrets to Git, use local files and templates
 

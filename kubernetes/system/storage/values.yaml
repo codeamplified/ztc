@@ -1,0 +1,74 @@
+# Zero Touch Cluster Storage Configuration
+# Hybrid storage with local-path (default) and NFS enabled for homelabs
+
+# Global configuration
+global:
+  # Default storage configuration
+  defaultStorageClass: "local-path"
+
+# Local Path Provisioner (k3s built-in)
+# This is typically already installed with k3s, but we can configure it
+localPath:
+  enabled: true
+  # Make local-path the default storage class
+  isDefaultClass: true
+  
+# NFS Storage Provisioner
+nfs:
+  enabled: true  # NFS enabled by default for hybrid storage
+  
+  # NFS Server configuration
+  server:
+    ip: "192.168.50.20"  # Storage node IP
+    path: "/export/k8s"   # NFS export path
+  
+  # NFS Provisioner configuration
+  provisioner:
+    name: "nfs-provisioner/nfs-subdir"
+    image: "registry.k8s.io/sig-storage/nfs-subdir-external-provisioner:v4.0.2"
+    
+    # Resource limits for NFS provisioner
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 50m
+      limits:
+        memory: 256Mi
+        cpu: 200m
+  
+  # Storage Class configuration
+  storageClass:
+    name: "nfs-client"
+    isDefaultClass: false  # Don't make NFS the default
+    reclaimPolicy: "Delete"
+    volumeBindingMode: "Immediate"
+    allowVolumeExpansion: true
+    parameters:
+      archiveOnDelete: "false"
+      pathPattern: "${.PVC.namespace}-${.PVC.name}"
+
+# Additional storage classes (can be extended)
+additionalStorageClasses: []
+#  - name: "fast-ssd"
+#    provisioner: "kubernetes.io/no-provisioner"
+#    volumeBindingMode: "WaitForFirstConsumer"
+#    parameters:
+#      type: "ssd"
+
+# Example PVCs for testing (disabled by default)
+examples:
+  enabled: false
+  
+  # Example local-path PVC
+  localPathPVC:
+    name: "test-local-path"
+    size: "1Gi"
+    accessModes:
+      - "ReadWriteOnce"
+  
+  # Example NFS PVC
+  nfsPVC:
+    name: "test-nfs"
+    size: "1Gi"
+    accessModes:
+      - "ReadWriteMany"

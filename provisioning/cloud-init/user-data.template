@@ -13,7 +13,7 @@ autoinstall:
     variant: ""
     toggle: null
   
-  # Network configuration - Static IP for homelab nodes  
+  # Network configuration - Static IP for Zero Touch Cluster nodes  
   # EXPERT FIX: Use intelligent name matching to prevent CNI race condition
   # This matches eno1, enp1s0, enp3s0 but NOT cni0, flannel.1, veth*
   network:

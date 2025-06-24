@@ -1,8 +1,8 @@
 # Zero Touch Cluster
 
-**A production-ready Kubernetes homelab with fully automated deployment**
+**Infrastructure-as-Code Kubernetes Homelab with GitOps**
 
-Zero Touch Cluster is an open-source reference implementation for building production-grade Kubernetes homelabs using k3s, Ansible, and automated USB provisioning. Deploy a complete 4-node cluster with zero manual configuration - just boot from USB and wait.
+Zero Touch Cluster is an open-source project that transforms bare metal into a production-grade Kubernetes homelab using modern DevOps practices. Built with k3s, Ansible, and automated USB provisioning, it delivers a complete 4-node cluster with monitoring, storage, and GitOps-ready infrastructure - all deployable with zero manual configuration.
 
 > 🚀 **Zero Touch Promise**: Insert USB, press power, wait 15 minutes. Your node is deployed, configured, and ready to join the cluster.
 
@@ -26,7 +26,8 @@ git clone https://github.com/codeamplified/ztc
 cd ztc
 
 # 2. Setup secrets
-ansible-vault create ansible/inventory/secrets.yml
+make setup
+edit ansible/inventory/secrets.yml
 # Add your SSH key path: ansible_ssh_private_key_file: ~/.ssh/id_ed25519
 
 # 3. Create USB drives and boot nodes (15 min each, unattended)
@@ -72,7 +73,7 @@ Zero Touch Cluster implements a clean separation of concerns across five main co
                        │                 │
                        │  • NFS Server   │
                        │  • K8s Storage  │
-                       │  • 192.168.50.20│
+                       │  • 192.168.1.20 │
                        └─────────────────┘
 ```
 
@@ -80,14 +81,15 @@ Zero Touch Cluster implements a clean separation of concerns across five main co
 
 - **🎯 Kubernetes**: k3s (lightweight, single-binary, production-ready)
 - **📋 Orchestration**: Ansible (infrastructure-as-code, repeatable deployments)
-- **💾 Storage**: Hybrid local-path + optional NFS for flexibility
+- **💾 Storage**: Hybrid local-path + NFS storage (both enabled by default)
 - **🌐 Networking**: Flannel CNI + Traefik ingress (zero configuration)
 - **🔧 Provisioning**: Cloud-init + dual-USB approach (scriptable, reliable)
+- **🚢 GitOps**: ArgoCD for application deployment with hybrid Helm+GitOps architecture
 - **🔐 Security**: SSH keys, encrypted secrets, RBAC
 
 ## Zero Touch Deployment Process
 
-The magic of Zero Touch Cluster is in the "Bootstrappable USB" workflow:
+The magic of Zero Touch Cluster is in our "Bootstrappable USB" workflow:
 
 ### 1. Preparation (One-time setup)
 ```bash
@@ -109,11 +111,16 @@ make cidata-iso HOSTNAME=k3s-worker-02 IP_OCTET=12
 
 ### 3. Cluster Integration
 ```bash
-# Ansible automatically configures and joins nodes to the cluster
+# Deploy complete infrastructure (includes system components + ArgoCD)
 make infra
 
-# Verify cluster health
+# Verify system components
 kubectl get nodes -o wide
+make gitops-status
+
+# Configure private repository (optional)
+# Then deploy your applications via ArgoCD
+make argocd-apps
 ```
 
 ## Customization Guide
@@ -147,15 +154,31 @@ vim ansible/roles/common/tasks/main.yml  # Network-specific tasks
 - Repurposed laptops/desktops
 - Cloud VMs (adapt network configuration)
 
-### Adding Your Applications
+### Hybrid GitOps Architecture
 
+Zero Touch Cluster separates **system infrastructure** from **application workloads**:
+
+#### **System Components (Helm)**
 ```bash
-# Add Kubernetes manifests to:
-kubernetes/apps/your-app/
-
-# Or use Helm charts:
-helm install your-app ./kubernetes/apps/your-app
+# Deploy core infrastructure directly via Helm:
+make system-components    # ztc-monitoring, ztc-storage, ArgoCD
 ```
+
+#### **Application Workloads (ArgoCD)**
+```bash
+# 1. Create separate repository for your applications
+# 2. Configure repository credentials:
+cp kubernetes/system/argocd/config/repository-credentials.yaml.template \
+   kubernetes/system/argocd/config/repository-credentials.yaml
+# 3. ArgoCD automatically deploys from Git
+make argocd-apps
+```
+
+**Why this approach?**
+- ✅ **System stability**: Core infrastructure managed directly
+- ✅ **GitOps benefits**: Applications follow Git-driven workflows  
+- ✅ **Separation of concerns**: Infrastructure vs application lifecycle
+- ✅ **Security**: Private workloads in separate repositories
 
 ## Directory Structure
 
@@ -165,9 +188,12 @@ zero-touch-cluster/
 │   ├── inventory/             # Host definitions and secrets
 │   ├── roles/                 # Reusable Ansible roles
 │   └── playbooks/            # Deployment playbooks
-├── kubernetes/                # Kubernetes manifests
-│   ├── storage/              # Storage configurations
-│   └── apps/                 # Application deployments
+├── kubernetes/                # Kubernetes configurations
+│   ├── system/               # System components (ZTC Helm charts)
+│   │   ├── monitoring/       # ztc-monitoring (Prometheus, Grafana, AlertManager)
+│   │   ├── storage/          # ztc-storage (local-path + NFS for homelabs)
+│   │   └── argocd/           # GitOps platform
+│   └── argocd-apps/         # ArgoCD Application definitions
 ├── provisioning/             # USB creation and cloud-init
 │   └── cloud-init/          # Node bootstrap configurations
 └── docs/                     # Detailed documentation
@@ -280,8 +306,8 @@ Zero Touch Cluster is designed to be extended and customized:
 Available documentation:
 - **Customization Guide**: `docs/customization-guide.md` - Adapting for your environment
 - **Provisioning**: `provisioning/README.md` - USB creation and cloud-init details
-- **Storage**: `kubernetes/storage/README.md` - Storage configuration options
-- **Monitoring**: `kubernetes/apps/monitoring/README.md` - Monitoring stack setup
+- **Storage**: Hybrid approach (local-path + NFS) via `kubernetes/system/storage/`
+- **Monitoring**: Helm chart configuration via `kubernetes/system/monitoring/`
 
 ## License
 

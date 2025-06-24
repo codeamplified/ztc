@@ -1,0 +1,45 @@
+{{- if .Values.nfs.enabled }}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.nfs.storageClass.name }}
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+  annotations:
+    storageclass.kubernetes.io/is-default-class: {{ .Values.nfs.storageClass.isDefaultClass | quote }}
+provisioner: {{ .Values.nfs.provisioner.name }}
+parameters:
+  {{- toYaml .Values.nfs.storageClass.parameters | nindent 2 }}
+volumeBindingMode: {{ .Values.nfs.storageClass.volumeBindingMode }}
+allowVolumeExpansion: {{ .Values.nfs.storageClass.allowVolumeExpansion }}
+reclaimPolicy: {{ .Values.nfs.storageClass.reclaimPolicy }}
+{{- end }}
+
+{{- range .Values.additionalStorageClasses }}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- include "homelab-storage.labels" $ | nindent 4 }}
+  {{- if .annotations }}
+  annotations:
+    {{- toYaml .annotations | nindent 4 }}
+  {{- end }}
+provisioner: {{ .provisioner }}
+{{- if .parameters }}
+parameters:
+  {{- toYaml .parameters | nindent 2 }}
+{{- end }}
+{{- if .volumeBindingMode }}
+volumeBindingMode: {{ .volumeBindingMode }}
+{{- end }}
+{{- if .allowVolumeExpansion }}
+allowVolumeExpansion: {{ .allowVolumeExpansion }}
+{{- end }}
+{{- if .reclaimPolicy }}
+reclaimPolicy: {{ .reclaimPolicy }}
+{{- end }}
+{{- end }}

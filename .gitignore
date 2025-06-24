@@ -26,6 +26,10 @@ kubeconfig*
 # Helm secrets plugin
 secrets.yaml
 
+# Helm chart dependencies (downloaded binaries)
+charts/
+Chart.lock
+
 # AI tools and configurations
 .claude/
 

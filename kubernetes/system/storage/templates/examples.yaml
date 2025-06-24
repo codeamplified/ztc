@@ -1,0 +1,39 @@
+{{- if .Values.examples.enabled }}
+---
+# Example Local Path PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.examples.localPathPVC.name }}
+  namespace: default
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    example: "true"
+spec:
+  storageClassName: {{ .Values.global.defaultStorageClass }}
+  accessModes:
+    {{- toYaml .Values.examples.localPathPVC.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.examples.localPathPVC.size }}
+
+{{- if .Values.nfs.enabled }}
+---
+# Example NFS PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.examples.nfsPVC.name }}
+  namespace: default
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    example: "true"
+spec:
+  storageClassName: {{ .Values.nfs.storageClass.name }}
+  accessModes:
+    {{- toYaml .Values.examples.nfsPVC.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.examples.nfsPVC.size }}
+{{- end }}
+{{- end }}

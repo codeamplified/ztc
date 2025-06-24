@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shared logging utilities for homelab provisioning scripts
+# Shared logging utilities for Zero Touch Cluster provisioning scripts
 
 # Colors for output
 readonly RED='\033[0;31m'

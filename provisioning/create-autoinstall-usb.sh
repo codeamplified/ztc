@@ -95,7 +95,7 @@ check_dependencies() {
             log_info "Using RSA key: ${SSH_KEY_FILE}"
         else
             log_error "No SSH public key found. Generate one with:"
-            echo "  ssh-keygen -t ed25519 -C 'homelab-admin'"
+            echo "  ssh-keygen -t ed25519 -C 'ztc-admin'"
             exit 1
         fi
     fi

@@ -1,0 +1,97 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: private-workloads
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: private-workloads
+    app.kubernetes.io/part-of: ztc
+  # Add finalizer to ensure proper cleanup
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Available storage classes for workloads:
+    # - local-path (default): Fast local storage for single-pod workloads
+    # - nfs-client: Shared storage for multi-pod applications and persistent data
+spec:
+  # Project to use (default project for now)
+  project: default
+  
+  # Source repository configuration
+  source:
+    # Update this URL to point to your private workloads repository
+    repoURL: https://github.com/yourname/private-workloads
+    targetRevision: HEAD
+    path: applications
+    
+    # Optional: Use specific directory structure
+    # directory:
+    #   recurse: true
+    #   include: "*.yaml"
+    
+  # Destination cluster and namespace
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default  # Default namespace, applications can override
+    
+  # Sync policy configuration
+  syncPolicy:
+    # Automatic sync configuration
+    automated:
+      prune: true       # Remove resources that are no longer in git
+      selfHeal: true    # Automatically fix drift
+      allowEmpty: false # Don't sync if source is empty
+    
+    # Sync options
+    syncOptions:
+      - CreateNamespace=true    # Auto-create namespaces
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true         # Prune resources last
+    
+    # Retry configuration
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  # Ignore differences in certain fields (optional)
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas  # Ignore replica count differences (for HPA)
+  
+  # Health and status configuration
+  revisionHistoryLimit: 10
+  
+---
+# Optional: Create a separate Application for different environments
+# Uncomment and customize if you have multiple environments
+
+# apiVersion: argoproj.io/v1alpha1
+# kind: Application
+# metadata:
+#   name: private-workloads-staging
+#   namespace: argocd
+#   labels:
+#     app.kubernetes.io/name: private-workloads-staging
+#     app.kubernetes.io/part-of: homelab
+#   finalizers:
+#     - resources-finalizer.argocd.argoproj.io
+# spec:
+#   project: default
+#   source:
+#     repoURL: https://github.com/yourname/private-workloads
+#     targetRevision: staging  # Use staging branch
+#     path: applications/staging
+#   destination:
+#     server: https://kubernetes.default.svc
+#     namespace: staging
+#   syncPolicy:
+#     automated:
+#       prune: true
+#       selfHeal: true
+#     syncOptions:
+#       - CreateNamespace=true

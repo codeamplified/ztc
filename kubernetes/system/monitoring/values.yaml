@@ -1,0 +1,176 @@
+# Zero Touch Cluster Monitoring Stack
+# Optimized for k3s homelabs with hybrid storage (local-path + optional NFS)
+
+# Global configuration
+global:
+  # Storage class to use (can be overridden)
+  storageClass: "local-path"  # Using local-path since NFS is not enabled
+  
+# Monitoring stack configuration
+prometheus:
+  enabled: true
+
+# Configuration for kube-prometheus-stack subchart
+kube-prometheus-stack:
+  # Global settings
+  fullnameOverride: ""
+  nameOverride: ""
+
+  # Grafana Configuration
+  grafana:
+    enabled: true
+    
+    # Admin credentials (should be overridden in values-secret.yaml)
+    adminPassword: "admin123"  # Change this in production!
+    
+    # Persistence using configurable storage
+    persistence:
+      enabled: true
+      storageClassName: "local-path"
+      size: 2Gi
+      accessModes:
+        - ReadWriteOnce
+    
+    # Ingress configuration for Traefik
+    ingress:
+      enabled: true
+      ingressClassName: traefik
+      annotations:
+        traefik.ingress.kubernetes.io/router.entrypoints: web
+      hosts:
+        - grafana.homelab.local
+    
+    # Resource limits for homelab
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+
+  # Prometheus Configuration  
+  prometheus:
+    enabled: true
+    
+    prometheusSpec:
+      # Data retention
+      retention: 30d
+      
+      # Storage using configurable storage class
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: "local-path"
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 10Gi
+      
+      # Resource limits
+      resources:
+        requests:
+          memory: 512Mi
+          cpu: 200m
+        limits:
+          memory: 1Gi
+          cpu: 1000m
+      
+      # Service monitor selector (monitor all)
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+      ruleSelectorNilUsesHelmValues: false
+
+  # AlertManager Configuration
+  alertmanager:
+    enabled: true
+    
+    alertmanagerSpec:
+      # Storage using configurable storage class
+      storage:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: "local-path"
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 1Gi
+      
+      # Resource limits
+      resources:
+        requests:
+          memory: 128Mi
+          cpu: 50m
+        limits:
+          memory: 256Mi
+          cpu: 200m
+
+  # Node Exporter (hardware metrics)
+  nodeExporter:
+    enabled: true
+    
+  # Kube State Metrics (Kubernetes object metrics)
+  kubeStateMetrics:
+    enabled: true
+
+  # Prometheus Operator
+  prometheusOperator:
+    enabled: true
+    
+    # Resource limits
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 50m
+      limits:
+        memory: 256Mi
+        cpu: 200m
+
+  # Default rules (alerts and recording rules) - optimized for k3s
+  defaultRules:
+    create: true
+    rules:
+      alertmanager: true
+      etcd: false  # k3s doesn't expose etcd metrics
+      configReloaders: true
+      general: true
+      k8s: true
+      kubeApiserverAvailability: true
+      kubeApiserverBurnrate: true
+      kubeApiserverHistogram: true
+      kubeApiserverSlos: true
+      kubelet: true
+      kubeProxy: false  # k3s uses kube-proxy differently
+      kubePrometheusGeneral: true
+      kubePrometheusNodeRecording: true
+      kubernetesApps: true
+      kubernetesResources: true
+      kubernetesStorage: true
+      kubernetesSystem: true
+      kubeScheduler: false  # k3s scheduler metrics not exposed by default
+      kubeStateMetrics: true
+      network: true
+      node: true
+      nodeExporterAlerting: true
+      nodeExporterRecording: true
+      prometheus: true
+      prometheusOperator: true
+
+  # Service monitors for k3s components
+  kubeApiServer:
+    enabled: true
+
+  kubelet:
+    enabled: true
+    
+  kubeControllerManager:
+    enabled: false  # Not exposed in k3s by default
+
+  kubeScheduler:
+    enabled: false  # Not exposed in k3s by default
+
+  kubeProxy:
+    enabled: false  # Different implementation in k3s
+
+  kubeEtcd:
+    enabled: false  # Not exposed in k3s

@@ -24,8 +24,8 @@ ansible/inventory/group_vars/all.yml
 provisioning/cloud-init/user-data.template
 # Update network configuration section if using static IPs
 
-# Kubernetes applications (if deploying apps)
-kubernetes/apps/*/values.yaml
+# System components configuration  
+kubernetes/system/*/values.yaml
 # Update any hardcoded domain names or resource limits
 ```
 
@@ -95,7 +95,7 @@ make setup
 
 # This creates:
 # ansible/inventory/secrets.yml              # From secrets.yml.template
-# kubernetes/apps/*/values-secret.yaml       # From values-secret.yaml.template
+# kubernetes/system/*/values-secret.yaml       # From values-secret.yaml.template
 ```
 
 ### Required Secret Files
@@ -122,54 +122,183 @@ export ANSIBLE_VAULT_PASSWORD_FILE=~/.ansible_vault_pass
 **Your Setup**: Update domain names in ingress configurations
 
 ```bash
-# In kubernetes/apps/*/ingress.yaml:
+# In kubernetes/system/*/values.yaml:
 # Change any hardcoded domains to your preferences
 # Example: grafana.homelab.local → grafana.yourname.local
 ```
 
 ### Storage Configuration
-**Reference Setup**: NFS server with 1TB+ available space (NFS enabled by default)
-**Your Setup**: Adjust storage configuration based on your needs
+**Reference Setup**: Hybrid storage with both local-path and NFS enabled by default
+**Your Setup**: Both storage classes available out-of-the-box, adjust sizes as needed
 
 ```bash
 # Storage configuration in ansible/inventory/group_vars/all.yml:
-nfs_enabled: true     # Set to false to disable NFS
+nfs_enabled: true     # Already enabled by default
 nfs_export_path: "/export/k8s"
-storage_type: "hybrid"  # Supports both local-path and NFS
+storage_type: "hybrid"  # Both local-path and NFS available
 
-# In kubernetes/apps/*/values.yaml:
-# Modify storage requests:
+# In kubernetes/system/*/values.yaml:
+# Modify storage requests if needed:
 # persistence.size: 100Gi → 50Gi (for smaller setups)
+```
+
+## 🔄 GitOps Architecture
+
+Zero Touch Cluster uses a **Hybrid GitOps approach** that separates system infrastructure from application workloads:
+
+### **System Components (Helm Charts)**
+Core infrastructure deployed directly via Helm:
+- **ztc-monitoring**: Prometheus, Grafana, AlertManager
+- **ztc-storage**: Hybrid storage with local-path + NFS
+- **ArgoCD**: GitOps platform itself
+
+```bash
+# Deploy system components
+make system-components    # All system components
+make monitoring-stack     # Just monitoring
+make storage-stack        # Just storage
+make argocd              # Just ArgoCD
+```
+
+### **Application Workloads (ArgoCD)**
+Applications deployed via GitOps from private repositories:
+- **Private workloads**: Business applications, databases
+- **Shared workloads**: Open source tools, utilities
+- **Environment-specific**: staging, production configs
+
+```bash
+# Configure private repository access
+cp kubernetes/system/argocd/config/repository-credentials.yaml.template \
+   kubernetes/system/argocd/config/repository-credentials.yaml
+# Edit with your GitHub/GitLab credentials
+
+# Deploy ArgoCD applications
+make argocd-apps
+```
+
+### **When to Use Each Approach**
+
+**Use Helm for:**
+- ✅ System infrastructure (monitoring, storage, ingress)
+- ✅ Foundational components needed for cluster operation
+- ✅ Components that don't change frequently
+- ✅ Vendor charts with complex dependencies
+
+**Use ArgoCD for:**
+- ✅ Application workloads and business logic
+- ✅ Environment-specific deployments
+- ✅ Applications that change frequently
+- ✅ Multi-environment (dev/staging/prod) workflows
+
+### **ArgoCD Configuration**
+
+#### **Repository Credentials Setup**
+```bash
+# 1. Copy template
+cp kubernetes/system/argocd/config/repository-credentials.yaml.template \
+   kubernetes/system/argocd/config/repository-credentials.yaml
+
+# 2. Edit with your credentials
+# For GitHub (recommended):
+#   url: "https://github.com/yourusername/private-workloads"
+#   username: "yourusername"  
+#   password: "ghp_your_personal_access_token"
+
+# 3. Apply credentials
+kubectl apply -f kubernetes/system/argocd/config/repository-credentials.yaml
+```
+
+#### **Private Repository Structure**
+Create a separate repository for your workloads:
+```
+private-workloads/
+├── applications/           # ArgoCD will monitor this path
+│   ├── database/
+│   │   ├── postgres.yaml
+│   │   └── values.yaml
+│   ├── web-app/
+│   └── monitoring-extras/
+└── environments/          # Optional: environment-specific configs
+    ├── staging/
+    └── production/
+```
+
+#### **Storage Classes for Workloads**
+Your ArgoCD-deployed applications can use both storage classes:
+
+```yaml
+# In your private workloads - use local-path for single-pod apps
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-data
+spec:
+  storageClassName: "local-path"  # Fast local storage
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# Use nfs-client for shared/multi-pod apps  
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-data
+spec:
+  storageClassName: "nfs-client"  # Shared NFS storage
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 50Gi
 ```
 
 ## 🚀 Deployment Customization
 
-### Quick Start Commands
+### **Quick Start Commands**
 ```bash
-# Initial setup (creates secret templates)
+# 1. Initial setup (creates secret templates)
 make setup
 
-# Deploy infrastructure after configuring secrets
+# 2. Deploy infrastructure + system components + ArgoCD
 make infra
 
-# Verify deployment
+# 3. Configure private repository credentials (see ArgoCD section above)
+# 4. Deploy your applications via ArgoCD
+make argocd-apps
+
+# 5. Verify deployment
 make status
+make gitops-status   # Check ArgoCD application status
 ```
 
-### Selective Deployment
-You can deploy components individually:
+### **System Components Deployment**
+Deploy infrastructure components individually:
 
 ```bash
-# Deploy only storage server
-make storage
+# Infrastructure (Ansible-managed)
+make storage         # NFS storage server setup
+make cluster         # k3s cluster deployment
 
-# Deploy only k3s cluster
-make cluster
+# System components (Helm-managed)
+make system-components    # Deploy all system Helm charts
+make monitoring-stack     # ztc-monitoring only
+make storage-stack        # ztc-storage only
+make argocd              # ArgoCD platform only
+```
 
-# NFS storage management
-make enable-nfs      # Enable NFS storage
-make disable-nfs     # Disable NFS storage
-make deploy-nfs      # Deploy NFS provisioner to cluster
+### **GitOps Workflow**
+Once system components are deployed:
+
+```bash
+# Check GitOps status
+make gitops-status       # View ArgoCD applications
+make gitops-sync         # Force sync all applications
+
+# ArgoCD management
+kubectl get applications -n argocd
+kubectl port-forward svc/argocd-server -n argocd 8080:80
+# Access UI: http://localhost:8080
 ```
 
 ### Resource Limits
@@ -188,7 +317,7 @@ resources:
 
 ## 🔍 Validation Checklist
 
-Before deploying, verify:
+### **Infrastructure Preparation**
 - [ ] All IP addresses updated in inventory
 - [ ] SSH key path correct in secrets.yml
 - [ ] Hostnames updated consistently across files
@@ -196,12 +325,26 @@ Before deploying, verify:
 - [ ] Storage sizing appropriate for your hardware
 - [ ] DNS/domain names updated if using custom domains
 - [ ] Resource limits adjusted for your hardware specs
-- [ ] Run validation commands:
-  ```bash
-  make lint      # Validate YAML syntax and Ansible playbooks
-  make validate  # Validate Kubernetes manifests
-  make ping      # Test connectivity to nodes
-  ```
+
+### **GitOps Configuration**
+- [ ] Private repository created for workloads
+- [ ] Repository credentials configured in ArgoCD
+- [ ] `private-workloads.yaml` updated with correct repo URL
+- [ ] Storage class strategy defined for applications
+- [ ] Application manifests follow ArgoCD patterns
+
+### **Validation Commands**
+```bash
+# Pre-deployment validation
+make lint         # Validate YAML syntax and Ansible playbooks
+make validate     # Validate Kubernetes manifests
+make ping         # Test connectivity to nodes
+
+# Post-deployment verification
+make status       # Check cluster status
+make gitops-status # Check ArgoCD applications
+kubectl get storageclass  # Verify storage classes
+```
 
 ## 🆘 Common Customization Issues
 
@@ -224,15 +367,38 @@ Before deploying, verify:
 - Ensure static DHCP reservations are configured
 - Verify network configuration in `ansible/inventory/group_vars/all.yml`
 
+### ArgoCD/GitOps issues
+- **Repository access denied**: Check credentials in `repository-credentials.yaml`
+- **Applications not syncing**: Verify repository URL and path in ArgoCD Application
+- **Storage class not found**: Ensure `make storage-stack` completed successfully
+- **ArgoCD UI not accessible**: Check ArgoCD pods: `kubectl get pods -n argocd`
+- **Applications stuck pending**: Check storage classes: `kubectl get storageclass`
+
+### Storage issues
+- **PVCs stuck pending**: Check storage provisioner pods
+- **NFS mount failures**: Verify NFS server status on storage node
+- **Local-path issues**: Check local-path provisioner: `kubectl get pods -n kube-system`
+- **Wrong storage class**: Update PVC to use `local-path` or `nfs-client`
+
 ## 💡 Pro Tips
 
+### **Deployment Strategy**
 1. **Start Small**: Deploy just the basic cluster first, add applications gradually
-2. **Use Makefile**: Leverage `make setup`, `make infra`, `make status` for streamlined deployment
-3. **Validate Early**: Run `make lint` and `make validate` before deploying changes
-4. **Keep Notes**: Document your changes for future reference
-5. **Backup Configs**: Keep your customized configs in a private fork
-6. **Test Connectivity**: Use `make ping` to verify node connectivity before deployment
-7. **Monitor Resources**: Check cluster health with `make status`
+2. **System First**: Get system components (monitoring, storage, ArgoCD) stable before applications
+3. **Use Makefile**: Leverage `make setup`, `make infra`, `make status` for streamlined deployment
+4. **Validate Early**: Run `make lint` and `make validate` before deploying changes
+
+### **GitOps Best Practices**
+5. **Separate Repositories**: Keep system configs (this repo) separate from workload configs (private repo)
+6. **Test Storage Classes**: Verify both `local-path` and `nfs-client` work before deploying applications
+7. **Monitor ArgoCD**: Use `make gitops-status` and ArgoCD UI to track application deployments
+8. **Credential Security**: Never commit repository credentials to Git
+
+### **Maintenance**
+9. **Keep Notes**: Document your changes for future reference
+10. **Backup Configs**: Keep your customized configs in a private fork
+11. **Test Connectivity**: Use `make ping` to verify node connectivity before deployment
+12. **Monitor Resources**: Check cluster health with `make status`
 
 ---
 

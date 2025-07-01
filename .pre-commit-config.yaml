@@ -1,0 +1,96 @@
+# Pre-commit configuration for Zero Touch Cluster
+# Provides automated security and quality checks before commits
+
+repos:
+  # Security: Detect secrets before they reach git
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: |
+          (?x)^(
+            .*\.lock$|
+            .*\.log$|
+            docs/.*\.md$|
+            README\.md$
+          )$
+
+  # General file hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: |
+          (?x)^(
+            .*\.patch$|
+            .*\.diff$
+          )$
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ['--unsafe']  # Allow custom YAML tags (Ansible, Kubernetes)
+        exclude: |
+          (?x)^(
+            .*\.template$|
+            kubernetes/system/monitoring/charts/.*
+          )$
+      - id: check-added-large-files
+        args: ['--maxkb=1024']
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: mixed-line-ending
+
+  # Ansible linting
+  - repo: https://github.com/ansible/ansible-lint
+    rev: v6.22.1
+    hooks:
+      - id: ansible-lint
+        files: |
+          (?x)^(
+            ansible/.*\.(yml|yaml)$|
+            ansible/.*\.j2$
+          )$
+        exclude: |
+          (?x)^(
+            ansible/inventory/secrets\.yml$|
+            .*\.template$
+          )$
+
+  # YAML linting (additional validation)
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.33.0
+    hooks:
+      - id: yamllint
+        args: [-c=.yamllint]
+        exclude: |
+          (?x)^(
+            ansible/inventory/secrets\.yml$|
+            .*\.template$|
+            kubernetes/system/monitoring/charts/.*|
+            \.pre-commit-config\.yaml$
+          )$
+
+  # Kubernetes manifest validation
+  - repo: https://github.com/instrumenta/kubeval
+    rev: v0.16.1
+    hooks:
+      - id: kubeval
+        files: kubernetes/.*\.ya?ml$
+        exclude: |
+          (?x)^(
+            kubernetes/system/monitoring/charts/.*|
+            .*\.template$|
+            .*values.*\.ya?ml$
+          )$
+
+  # Helm chart linting
+  - repo: local
+    hooks:
+      - id: helm-lint
+        name: Helm Lint
+        entry: helm
+        args: [lint]
+        files: kubernetes/system/.*/Chart\.yaml$
+        language: system
+        pass_filenames: false
+        additional_dependencies: []

@@ -1,0 +1,48 @@
+# yamllint configuration for Zero Touch Cluster
+# More permissive rules for infrastructure-as-code
+
+extends: default
+
+rules:
+  # Allow longer lines for URLs and complex expressions
+  line-length:
+    max: 120
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
+
+  # Allow more flexible indentation for Kubernetes/Ansible
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+
+  # Relax trailing spaces rule (handled by pre-commit)
+  trailing-spaces: disable
+
+  # Allow empty values (common in Kubernetes)
+  empty-values:
+    forbid-in-block-mappings: false
+    forbid-in-flow-mappings: false
+
+  # Allow duplicate keys (sometimes needed for Helm templates)
+  key-duplicates: disable
+
+  # Allow document start marker flexibility
+  document-start:
+    present: false
+
+  # Allow comments with less spacing
+  comments:
+    min-spaces-from-content: 1
+    require-starting-space: true
+
+  # Allow complex brackets/braces (Helm templates)
+  brackets:
+    forbid-implicit-octal: true
+    max-spaces-inside: 1
+    max-spaces-inside-empty: 0
+
+  braces:
+    forbid-implicit-octal: true
+    max-spaces-inside: 1
+    max-spaces-inside-empty: 0

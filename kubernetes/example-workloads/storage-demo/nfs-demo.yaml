@@ -1,0 +1,135 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-demo-pvc
+  namespace: storage-demo
+  labels:
+    app.kubernetes.io/name: storage-demo
+    app.kubernetes.io/part-of: ztc-examples
+    storage-type: nfs
+    example: "true"
+  annotations:
+    example.com/description: "NFS shared storage demo - accessible across all nodes"
+spec:
+  storageClassName: nfs-client
+  accessModes:
+    - ReadWriteMany  # NFS supports shared access
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-writer
+  namespace: storage-demo
+  labels:
+    app.kubernetes.io/name: nfs-writer
+    app.kubernetes.io/part-of: ztc-examples
+    example: "true"
+spec:
+  replicas: 2  # Multiple replicas to demonstrate shared storage
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nfs-writer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nfs-writer
+        app.kubernetes.io/part-of: ztc-examples
+    spec:
+      containers:
+      - name: writer
+        image: alpine:3.18
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            # Initialize shared file if it doesn't exist
+            if [ ! -f /shared/nfs-demo.txt ]; then
+              echo "NFS Shared Storage Demo - ZTC" > /shared/nfs-demo.txt
+              echo "Storage Class: nfs-client (shared across nodes)" >> /shared/nfs-demo.txt
+              echo "Use case: Multi-pod apps, shared data, backups" >> /shared/nfs-demo.txt
+              echo "Access Mode: ReadWriteMany" >> /shared/nfs-demo.txt
+              echo "===========================================" >> /shared/nfs-demo.txt
+            fi
+            
+            # Continuously append from this pod
+            while true; do
+              echo "$(date) - Pod: $(hostname) - NFS storage working!" >> /shared/nfs-demo.txt
+              echo "Last 10 entries from shared file:"
+              tail -10 /shared/nfs-demo.txt
+              echo "---"
+              sleep 45
+            done
+        volumeMounts:
+        - name: shared-data
+          mountPath: /shared
+        resources:
+          requests:
+            memory: "16Mi"
+            cpu: "5m"
+          limits:
+            memory: "32Mi"
+            cpu: "20m"
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: nfs-demo-pvc
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-reader
+  namespace: storage-demo
+  labels:
+    app.kubernetes.io/name: nfs-reader
+    app.kubernetes.io/part-of: ztc-examples
+    example: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nfs-reader
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nfs-reader
+        app.kubernetes.io/part-of: ztc-examples
+    spec:
+      containers:
+      - name: reader
+        image: alpine:3.18
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            echo "NFS Reader Pod - Monitoring shared file..."
+            while true; do
+              if [ -f /shared/nfs-demo.txt ]; then
+                echo "=== NFS Shared File Contents (last 15 lines) ==="
+                tail -15 /shared/nfs-demo.txt
+                echo "Total lines: $(wc -l < /shared/nfs-demo.txt)"
+              else
+                echo "Waiting for shared file to be created..."
+              fi
+              echo "---"
+              sleep 60
+            done
+        volumeMounts:
+        - name: shared-data
+          mountPath: /shared
+          readOnly: true
+        resources:
+          requests:
+            memory: "16Mi"
+            cpu: "5m"
+          limits:
+            memory: "32Mi"
+            cpu: "20m"
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: nfs-demo-pvc

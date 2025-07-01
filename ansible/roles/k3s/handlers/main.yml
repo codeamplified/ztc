@@ -21,4 +21,9 @@
   systemd:
     daemon_reload: true
   become: true
-  listen: reload systemd 
+  listen: reload systemd
+
+- name: restart coredns
+  command: /usr/local/bin/k3s kubectl rollout restart deployment/coredns -n kube-system
+  become: true
+  listen: restart coredns 

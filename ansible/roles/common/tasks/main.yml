@@ -77,21 +77,7 @@
     reload: true
   become: true
 
-- name: Create admin user
-  user:
-    name: "{{ ansible_user }}"
-    groups: sudo
-    shell: /bin/bash
-    create_home: true
-    password: "{{ admin_user_password | password_hash('sha512') }}"
-  become: true
 
-- name: Add SSH key for admin user
-  authorized_key:
-    user: "{{ ansible_user }}"
-    key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"
-    state: present
-  become: true
 
 - name: Configure sudo without password for admin user
   lineinfile:

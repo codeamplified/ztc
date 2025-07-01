@@ -17,23 +17,48 @@ SSH_KEY := $(HOME)/.ssh/id_ed25519.pub
 
 ##@ Setup & Prerequisites
 
-setup: ## Initial setup - create secrets templates and check prerequisites
-	@echo "$(CYAN)Setting up Zero Touch Cluster environment...$(RESET)"
-	@if [ ! -f ansible/inventory/secrets.yml ]; then \
-		echo "$(YELLOW)Creating secrets.yml from template...$(RESET)"; \
-		cp ansible/inventory/secrets.yml.template ansible/inventory/secrets.yml; \
-		echo "$(RED)⚠️  Edit ansible/inventory/secrets.yml with your actual values$(RESET)"; \
-	fi
-	@find kubernetes/system/ -name "values-secret.yaml.template" -exec sh -c \
-		'cp "$$1" "$${1%.template}"' _ {} \; 2>/dev/null || true
-	@echo "$(GREEN)✅ Setup complete! Edit secret files before proceeding.$(RESET)"
+setup: ## Interactive wizard to set up secrets and prerequisites
+	@chmod +x provisioning/lib/setup-wizard.sh
+	@./provisioning/lib/setup-wizard.sh
 
-check: ## Check prerequisites and system readiness
-	@echo "$(CYAN)Checking prerequisites...$(RESET)"
-	@command -v ansible >/dev/null || (echo "$(RED)❌ Ansible not installed$(RESET)" && exit 1)
-	@[ -f ~/.ssh/id_rsa ] || [ -f ~/.ssh/id_ed25519 ] || (echo "$(RED)❌ SSH key not found$(RESET)" && exit 1)
-	@[ -f ansible/inventory/secrets.yml ] || (echo "$(RED)❌ secrets.yml not found - run 'make setup'$(RESET)" && exit 1)
-	@echo "$(GREEN)✅ All prerequisites satisfied$(RESET)"
+trust-hosts: ## Scan and trust SSH host keys for all nodes in the inventory
+	@echo "$(CYAN)Scanning and trusting SSH host keys...$(RESET)"
+	@ansible-inventory -i ansible/inventory/hosts.ini --list | \
+		grep -oE '"ansible_host": "([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})"' | \
+		cut -d '"' -f 4 | \
+		xargs -I {} ssh-keyscan -H {} >> ~/.ssh/known_hosts
+	@echo "$(GREEN)✅ SSH host keys trusted.$(RESET)"
+
+backup-secrets: ## Backup all critical secrets to an encrypted archive
+	@echo "$(CYAN)Backing up secrets...$(RESET)"
+	@if [ ! -f .ansible-vault-password ]; then \
+		echo "$(RED)❌ Ansible Vault password file not found. Run 'make setup' first.$(RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(CYAN)Enter a password for the backup archive:$(RESET)"
+	@read -s BACKUP_PASSWORD; \
+	tar -czf - \
+		.ansible-vault-password \
+		ansible/inventory/secrets.yml \
+		<(kubectl get secret -n kube-system sealed-secrets-key -o yaml) \
+		| gpg --symmetric --cipher-algo AES256 --batch --yes --passphrase "$BACKUP_PASSWORD" -o ztc-secrets-backup-$(shell date +%Y-%m-%d).tar.gz.gpg
+	@echo "$(GREEN)✅ Secrets backup created: ztc-secrets-backup-$(shell date +%Y-%m-%d).tar.gz.gpg$(RESET)"
+	@echo "$(YELLOW)ACTION REQUIRED: Copy this file to a safe, offline location.$(RESET)"
+
+recover-secrets: ## Recover secrets from an encrypted archive
+	@echo "$(CYAN)Recovering secrets...$(RESET)"
+	@echo "$(CYAN)Enter the path to your backup file:$(RESET)"
+	@read BACKUP_FILE; \
+	if [ ! -f "$BACKUP_FILE" ]; then \
+		echo "$(RED)❌ Backup file not found.$(RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(CYAN)Enter the password for the backup archive:$(RESET)"
+	@read -s BACKUP_PASSWORD; \
+	gpg --decrypt --batch --yes --passphrase "$BACKUP_PASSWORD" "$BACKUP_FILE" | tar -xzf -
+	@kubectl apply -f <(kubectl get secret -n kube-system sealed-secrets-key -o yaml)
+	@echo "$(GREEN)✅ Secrets recovered successfully.$(RESET)"
+
 
 ##@ Infrastructure Deployment
 
@@ -95,30 +120,11 @@ deploy-nfs: ## Deploy NFS storage provisioner (requires NFS enabled in Ansible)
 	@echo "$(GREEN)✅ NFS provisioner deployed$(RESET)"
 	@echo "$(YELLOW)Note: Ensure NFS is enabled on storage node first$(RESET)"
 
-enable-nfs: ## Enable NFS storage (updates Ansible config and redeploys storage)
-	@echo "$(CYAN)Enabling NFS storage...$(RESET)"
-	@sed -i 's/nfs_enabled: false/nfs_enabled: true/g' ansible/inventory/group_vars/all.yml
-	@echo "$(GREEN)✅ NFS enabled in Ansible configuration$(RESET)"
-	@echo "$(CYAN)Re-running storage setup...$(RESET)"
-	@cd ansible && ansible-playbook playbooks/01-k8s-storage-setup.yml
-	@echo "$(CYAN)Deploying storage stack with NFS...$(RESET)"
-	helm upgrade --install storage ./kubernetes/system/storage \
-		--namespace kube-system \
-		--values ./kubernetes/system/storage/values.yaml \
-		--set nfs.enabled=true \
-		--wait --timeout 5m
-	@echo "$(GREEN)✅ NFS storage fully enabled$(RESET)"
+enable-nfs: ## Enable NFS storage (manual step)
+	@echo "$(YELLOW)To enable NFS, set 'nfs_enabled: true' in 'ansible/inventory/group_vars/all.yml' and re-run 'make infra'$(RESET)"
 
-disable-nfs: ## Disable NFS storage (updates Ansible config)
-	@echo "$(CYAN)Disabling NFS storage...$(RESET)"
-	@sed -i 's/nfs_enabled: true/nfs_enabled: false/g' ansible/inventory/group_vars/all.yml
-	helm upgrade --install storage ./kubernetes/system/storage \
-		--namespace kube-system \
-		--values ./kubernetes/system/storage/values.yaml \
-		--set nfs.enabled=false \
-		--wait --timeout 5m
-	@echo "$(GREEN)✅ NFS disabled$(RESET)"
-	@echo "$(YELLOW)Note: NFS server remains installed but inactive$(RESET)"
+disable-nfs: ## Disable NFS storage (manual step)
+	@echo "$(YELLOW)To disable NFS, set 'nfs_enabled: false' in 'ansible/inventory/group_vars/all.yml' and re-run 'make infra'$(RESET)"
 
 ##@ GitOps (ArgoCD)
 
@@ -143,6 +149,17 @@ argocd: ## Install and configure ArgoCD
 	else \
 		echo "$(YELLOW)⚠️  Initial admin secret not found. ArgoCD may still be starting.$(RESET)"; \
 	fi
+
+##@ Secrets Management
+
+install-sealed-secrets: ## Install Sealed Secrets controller
+	@echo "$(CYAN)Installing Sealed Secrets controller...$(RESET)"
+	kubectl apply -f kubernetes/system/sealed-secrets/controller.yaml
+	@echo "$(CYAN)Waiting for Sealed Secrets controller to be ready...$(RESET)"
+	kubectl wait --for=condition=available deployment/sealed-secrets-controller -n kube-system --timeout=300s
+	@echo "$(GREEN)✅ Sealed Secrets controller installed$(RESET)"
+
+##@ GitOps (ArgoCD)
 
 argocd-apps: ## Deploy ArgoCD applications (private workloads)
 	@echo "$(CYAN)Deploying ArgoCD applications...$(RESET)"
@@ -259,14 +276,18 @@ uncordon-node: ## Uncordon a node after maintenance (usage: make uncordon-node N
 
 ##@ Development
 
-lint: ## Lint Ansible playbooks and YAML files
+lint: ## Lint Ansible, YAML, and Helm charts
 	@echo "$(CYAN)Linting Ansible playbooks...$(RESET)"
-	cd ansible && ansible-lint playbooks/ || echo "$(YELLOW)⚠️  ansible-lint not installed$(RESET)"
-	@echo "$(CYAN)Linting Kubernetes manifests...$(RESET)"
-	@find kubernetes/ -name "*.yaml" -o -name "*.yml" | xargs yamllint || echo "$(YELLOW)⚠️  yamllint not installed$(RESET)"
+	@command -v ansible-lint >/dev/null && ansible-lint ansible/ || echo "$(YELLOW)⚠️  ansible-lint not installed, skipping...$(RESET)"
+	@echo "$(CYAN)Linting YAML files...$(RESET)"
+	@command -v yamllint >/dev/null && yamllint . || echo "$(YELLOW)⚠️  yamllint not installed, skipping...$(RESET)"
+	@echo "$(CYAN)Linting Helm charts...$(RESET)"
+	@command -v helm >/dev/null && helm lint kubernetes/system/monitoring && helm lint kubernetes/system/storage || echo "$(YELLOW)⚠️  helm not installed, skipping...$(RESET)"
 
-validate: ## Validate Kubernetes manifests
+validate: ## Validate Kubernetes manifests against the cluster's API
 	@echo "$(CYAN)Validating Kubernetes manifests...$(RESET)"
+	@command -v kubeval >/dev/null && find kubernetes -name '*.yaml' -exec kubeval {} + || echo "$(YELLOW)⚠️  kubeval not installed, skipping...$(RESET)"
+	@echo "$(CYAN)Dry-running Kubernetes manifests against cluster...$(RESET)"
 	@find kubernetes/ -name "*.yaml" -o -name "*.yml" | xargs kubectl apply --dry-run=client -f
 
 ##@ Information

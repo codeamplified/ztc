@@ -14,11 +14,26 @@ Zero Touch Cluster is a Kubernetes homelab automation project using k3s and Ansi
 
 ### Infrastructure Provisioning
 ```bash
+# MODERN WORKFLOW (Recommended):
+# 1. Interactive setup wizard (handles all secrets automatically)
+make setup
+
+# 2. Create autoinstall USB drives for each node
+make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-master IP_OCTET=10
+make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-worker-01 IP_OCTET=11
+
+# 3. Deploy complete infrastructure after nodes boot
+make infra
+
+# 4. Create encrypted backup of all secrets
+make backup-secrets
+
+# LEGACY WORKFLOW (Manual):
 # Generate SSH key if needed (choose Ed25519 for better security)
 ssh-keygen -t ed25519 -C "your-email@example.com"
 # OR for RSA compatibility: ssh-keygen -t rsa -b 4096
 
-# Setup secrets first
+# Setup secrets manually (NOT RECOMMENDED - use 'make setup' instead)
 ansible-vault create ansible/inventory/secrets.yml
 # Make sure to set the correct SSH key path in secrets.yml:
 # ansible_ssh_private_key_file: ~/.ssh/id_ed25519  # or ~/.ssh/id_rsa
@@ -132,10 +147,17 @@ make uncordon-node NODE=<node-name>     # Uncordon node after maintenance
 
 ### Hybrid GitOps Architecture
 - **System Components**: Deployed via Helm charts (monitoring, storage, ArgoCD)
-- **Application Workloads**: Deployed via ArgoCD from private repositories
+- **Application Workloads**: Deployed via ArgoCD
+  - **Default**: Local example workloads (immediate functionality)
+  - **Production**: Migrate to private Git repositories when ready
 - **Storage Strategy**: 
   - System components use local-path for performance
   - Applications can use nfs-client for shared persistent data
+
+### Immediate Functionality
+- **Example Applications**: Hello-world app and storage demos deploy automatically
+- **Zero Configuration**: Working cluster with sample apps after `make infra`
+- **GitOps Ready**: Transition to private repos when ready for production workloads
 
 ### Key Configuration Files
 - `ansible/inventory/hosts.ini` - Ansible inventory with node definitions
@@ -144,14 +166,36 @@ make uncordon-node NODE=<node-name>     # Uncordon node after maintenance
 
 ## Secrets Management
 
-All secrets are managed locally and `.gitignore`'d:
-- **Ansible secrets**: `ansible/inventory/secrets.yml` (encrypted with ansible-vault)
-- **Kubernetes secrets**: `*-secret.yaml` files (unencrypted, local only)
-- **Templates provided**: `*.template` files show required secret structure
+**SECURE BY DEFAULT**: Zero Touch Cluster implements production-ready secrets management following ADR-001.
 
-**Important**: The setup uses the `ubuntu` user (not `admin`) for consistency with Ubuntu cloud images. Make sure your `secrets.yml` file has:
-- `ansible_user: ubuntu`
-- `ansible_ssh_private_key_file` set to your actual key path (`~/.ssh/id_ed25519` or `~/.ssh/id_rsa`)
+### Modern Secure Architecture:
+- **Interactive Setup**: `make setup` wizard handles all secrets automatically
+- **Encrypted Storage**: All secrets encrypted (Ansible Vault + Sealed Secrets)
+- **Automated Backup**: `make backup-secrets` creates encrypted recovery archive
+- **Pre-commit Protection**: Automatic prevention of plaintext secret commits
+- **No Manual Editing**: Zero exposure to plaintext secrets during setup
+
+### Secret Types & Encryption:
+- **Infrastructure secrets**: `ansible/inventory/secrets.yml` (ansible-vault encrypted)
+- **Kubernetes secrets**: Sealed Secrets (encrypted manifests safe to commit)
+- **Recovery**: Single encrypted backup file contains all crown jewels
+- **Pre-commit hooks**: detect-secrets prevents accidental secret exposure
+
+### Key Security Features:
+- ✅ **Zero plaintext secrets** on disk outside of memory
+- ✅ **Automated secret generation** with strong defaults
+- ✅ **Git commit protection** via pre-commit hooks
+- ✅ **One-command backup/recovery** for disaster scenarios
+- ✅ **Production-ready encryption** using industry standard tools
+
+### Emergency Recovery:
+```bash
+# Restore from backup after catastrophic failure
+make recover-secrets
+# Point to your encrypted backup file when prompted
+```
+
+**Important**: The setup uses the `ubuntu` user (not `admin`) for consistency with Ubuntu cloud images. The setup wizard handles this automatically.
 
 ## Network Configuration
 
@@ -211,10 +255,11 @@ make deploy-storage  # Verify storage setup
 ## Important Notes
 
 - **Hardware Focus**: This is designed for physical mini PC deployment, not cloud
-- **Hybrid GitOps**: System components via Helm, applications via ArgoCD
+- **Hybrid GitOps**: System components via Helm, applications via ArgoCD with local examples
 - **Infrastructure as Code**: All changes should be managed through Ansible and version controlled  
 - **Single Master**: Current setup uses single k3s master (can be upgraded to HA later)
-- **Local Secrets**: Never commit secrets to Git, use local files and templates
+- **Production Security**: ADR-001 compliant secrets management with automated safeguards
+- **Immediate Value**: Working cluster with example apps right after deployment
 
 ## Development Guidelines
 

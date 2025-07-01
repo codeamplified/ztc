@@ -21,12 +21,12 @@ kube-prometheus-stack:
     enabled: true
     
     # Admin credentials (should be overridden in values-secret.yaml)
-    adminPassword: "admin123"  # Change this in production!
+    adminPassword: ""
     
     # Persistence using configurable storage
     persistence:
       enabled: true
-      storageClassName: "local-path"
+      storageClassName: {{ .Values.global.storageClass | quote }}
       size: 2Gi
       accessModes:
         - ReadWriteOnce
@@ -61,7 +61,7 @@ kube-prometheus-stack:
       storageSpec:
         volumeClaimTemplate:
           spec:
-            storageClassName: "local-path"
+            storageClassName: {{ .Values.global.storageClass | quote }}
             accessModes: ["ReadWriteOnce"]
             resources:
               requests:
@@ -90,7 +90,7 @@ kube-prometheus-stack:
       storage:
         volumeClaimTemplate:
           spec:
-            storageClassName: "local-path"
+            storageClassName: {{ .Values.global.storageClass | quote }}
             accessModes: ["ReadWriteOnce"]
             resources:
               requests:

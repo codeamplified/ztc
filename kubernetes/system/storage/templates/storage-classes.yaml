@@ -1,3 +1,18 @@
+{{- if .Values.localPath.enabled }}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-path
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+  annotations:
+    storageclass.kubernetes.io/is-default-class: {{ .Values.localPath.isDefaultClass | quote }}
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+{{- end }}
+
 {{- if .Values.nfs.enabled }}
 ---
 apiVersion: storage.k8s.io/v1

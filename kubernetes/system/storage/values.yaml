@@ -7,7 +7,7 @@ global:
   defaultStorageClass: "local-path"
 
 # Local Path Provisioner (k3s built-in)
-# This is typically already installed with k3s, but we can configure it
+# This is typically already installed with k3s, but we define it here to be explicit.
 localPath:
   enabled: true
   # Make local-path the default storage class

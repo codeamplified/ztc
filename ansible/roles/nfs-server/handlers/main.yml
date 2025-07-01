@@ -11,8 +11,4 @@
   command: exportfs -ra
   become: true
 
-- name: restart smbd
-  systemd:
-    name: smbd
-    state: restarted
-  become: true 
+ 

@@ -1,15 +1,17 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: private-workloads
+  name: example-workloads
   namespace: argocd
   labels:
-    app.kubernetes.io/name: private-workloads
+    app.kubernetes.io/name: example-workloads
     app.kubernetes.io/part-of: ztc
   # Add finalizer to ensure proper cleanup
   finalizers:
     - resources-finalizer.argocd.argoproj.io
   annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    example.com/description: "Default example workloads - replace with your private repo when ready"
     # Available storage classes for workloads:
     # - local-path (default): Fast local storage for single-pod workloads
     # - nfs-client: Shared storage for multi-pod applications and persistent data
@@ -19,10 +21,10 @@ spec:
   
   # Source repository configuration
   source:
-    # Update this URL to point to your private workloads repository
-    repoURL: https://github.com/yourname/private-workloads
+    # Default: Local example workloads (change to your private repo when ready)
+    repoURL: https://github.com/codeamplified/ztc.git
     targetRevision: HEAD
-    path: applications
+    path: kubernetes/example-workloads
     
     # Optional: Use specific directory structure
     # directory:

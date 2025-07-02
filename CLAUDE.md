@@ -263,6 +263,48 @@ make deploy-storage  # Verify storage setup
 
 ## Development Guidelines
 
+### Commit Message Standards
+
+This project uses **Conventional Commits** for clear, consistent commit history:
+
+```
+<type>(<scope>): <subject>
+
+<body>
+```
+
+**Types:**
+- `fix`: Bug fixes
+- `feat`: New features  
+- `docs`: Documentation changes
+- `refactor`: Code restructuring without functionality changes
+- `test`: Adding or updating tests
+- `chore`: Maintenance tasks
+
+**Scopes:**
+- `setup`: Setup wizard and initial configuration
+- `ansible`: Ansible playbooks, roles, inventory
+- `k8s`: Kubernetes manifests and helm charts
+- `storage`: Storage configuration and provisioning
+- `monitoring`: Prometheus, Grafana, alerting
+- `argocd`: GitOps and ArgoCD configuration
+- `backup`: Backup and recovery functionality
+- `adr`: Architecture Decision Records
+
+**Examples:**
+```bash
+# Good: Short, descriptive commits
+git commit -m "fix(setup): resolve shell syntax error in setup wizard"
+git commit -m "feat(monitoring): add Grafana dashboard for storage metrics"
+git commit -m "docs(adr): add ADR-002 resilient infrastructure automation"
+
+# Avoid: Verbose commit messages with excessive detail
+# Keep commit subject under 50 characters
+# Use body for additional context if needed
+```
+
+### Code Quality
+
 - **YAML Validation**: 
   - Use `make lint` to validate Ansible playbooks and YAML syntax
   - Use `make validate` to validate Kubernetes manifests

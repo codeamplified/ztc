@@ -197,6 +197,103 @@ make recover-secrets
 
 **Important**: The setup uses the `ubuntu` user (not `admin`) for consistency with Ubuntu cloud images. The setup wizard handles this automatically.
 
+## Private Git Server (Gitea)
+
+**SELF-HOSTED GITOPS**: Zero Touch Cluster includes Gitea for private workload hosting, implementing ADR-003.
+
+### Why Internal Git Server?
+- **Privacy**: Keep your proprietary code within the cluster boundary
+- **Resilience**: No dependency on external Git services (GitHub.com, etc.)
+- **Simplicity**: Unified platform for both infrastructure and application development
+- **Air-Gap Ready**: Complete GitOps workflow without internet dependency
+
+### Gitea Management Commands:
+```bash
+# Deploy Gitea Git server
+make gitea-stack
+
+# Get admin credentials
+make gitea-admin-password
+# Output: Username: ztc-admin, Password: <generated-secure-password>
+
+# Access Gitea web UI
+# http://gitea.homelab.local
+```
+
+### Git Operations:
+```bash
+# Clone via HTTPS
+git clone http://gitea.homelab.local/ztc-admin/my-workloads.git
+
+# Clone via SSH (after adding SSH keys to Gitea)
+git clone git@gitea.homelab.local:30022/ztc-admin/my-workloads.git
+
+# Standard Git workflow
+cd my-workloads
+echo "# My Private Workloads" > README.md
+git add . && git commit -m "initial commit"
+git push origin main
+```
+
+### Private Workload Workflow:
+1. **Create Repository**: Use Gitea web UI to create new repository
+2. **Clone Locally**: `git clone http://gitea.homelab.local/user/repo.git`
+3. **Add Kubernetes Manifests**: Create your application YAML files
+4. **Configure ArgoCD**: Update ArgoCD Application to point to your Gitea repo
+5. **Deploy**: ArgoCD automatically syncs and deploys your applications
+
+### Integration with ArgoCD:
+```yaml
+# Example ArgoCD Application pointing to Gitea
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-private-app
+  namespace: argocd
+spec:
+  source:
+    repoURL: http://gitea-http.gitea.svc.cluster.local:3000/ztc-admin/workloads.git
+    targetRevision: main
+    path: apps/my-app
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: my-namespace
+```
+
+### Resource Usage:
+- **Gitea**: ~200MB RAM, minimal CPU (homelab-optimized)
+- **PostgreSQL**: ~100MB RAM (bundled database)
+- **Storage**: 10GB for repositories + 2GB for database
+- **Network**: HTTP (3000), SSH (30022 NodePort)
+
+### Backup Strategy:
+- **Automatic**: Gitea data stored on `nfs-client` persistent volume
+- **Manual**: Repository export via Gitea admin interface
+- **Integrated**: Included in `make backup-secrets` archive
+
+### Troubleshooting:
+```bash
+# Check Gitea deployment status
+kubectl get pods -n gitea
+kubectl logs -n gitea deployment/gitea
+
+# If pod is not ready, check startup progress
+kubectl describe pod -n gitea -l app=gitea
+
+# Reset admin credentials (if needed)
+kubectl delete secret -n gitea gitea-admin-secret
+make setup  # Regenerate credentials
+
+# Access with default credentials if setup fails
+# Username: ztc-admin, Password: changeme123
+# Change immediately after first login
+```
+
+### Installation Notes:
+- **First-time deployment**: Use default credentials, then run `make setup` for secure credentials
+- **Startup time**: Allow 2-3 minutes for initial database setup
+- **Resource requirements**: ~300MB RAM total for Gitea + PostgreSQL
+
 ## Network Configuration
 
 - **Subnet**: 192.168.50.0/24 (update `ansible/inventory/hosts.ini` for your network)

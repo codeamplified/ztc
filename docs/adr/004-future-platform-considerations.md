@@ -6,8 +6,6 @@
 
 **Supersedes:** None (extends ADR-001 and ADR-002)
 
-**Contributors:** Claude Code, ZTC Team
-
 ## Context
 
 Zero Touch Cluster (ZTC) currently provides excellent infrastructure automation and secrets management (ADR-001, ADR-002), but faces a fundamental limitation in its GitOps approach: **external dependency on third-party Git providers** for user workloads.

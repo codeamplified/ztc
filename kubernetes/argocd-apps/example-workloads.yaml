@@ -21,10 +21,16 @@ spec:
   
   # Source repository configuration
   source:
-    # Default: Local example workloads (change to your private repo when ready)
+    # Default: Local example workloads from ZTC repository
+    # Alternative: Use internal Gitea server (uncomment below after setting up private repo)
     repoURL: https://github.com/skol/ztc.git
     targetRevision: main
     path: kubernetes/example-workloads
+    
+    # To use internal Gitea instead, replace the above with:
+    # repoURL: http://gitea-http.gitea.svc.cluster.local:3000/ztc-admin/workloads.git
+    # targetRevision: main
+    # path: apps
     
     # Optional: Use specific directory structure
     # directory:

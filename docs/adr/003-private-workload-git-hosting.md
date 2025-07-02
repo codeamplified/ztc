@@ -6,8 +6,6 @@
 
 **Supersedes:** None
 
-**Contributors:** Gemini, skol
-
 ## Context and Problem Statement
 
 The ZTC platform provides a robust Infrastructure-as-Code (IaC) foundation for the cluster, with its configuration managed in a central Git repository on GitHub. ArgoCD uses this repository to manage the cluster's system components and platform services.

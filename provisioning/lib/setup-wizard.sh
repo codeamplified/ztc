@@ -96,7 +96,7 @@ GREEN "✅ All dependencies checked."
 GREEN "\n--- Ansible Vault Setup ---"
 if [ -f .ansible-vault-password ]; then
     YELLOW "Ansible Vault password file already exists. Skipping creation."
-elif
+else
     CYAN "Ansible Vault is used to encrypt infrastructure secrets."
     CYAN "Please create a password for your Ansible Vault."
     VAULT_PASS1=$(prompt_secret "Enter Ansible Vault password")

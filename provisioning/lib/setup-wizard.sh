@@ -159,6 +159,36 @@ kubeseal --format=yaml < argocd-repo-secret.yaml > kubernetes/system/argocd/conf
 rm argocd-repo-secret.yaml
 GREEN "✅ Encrypted kubernetes/system/argocd/config/repository-credentials.yaml created."
 
+# 4. Gitea Admin Credentials
+GREEN "\n--- Gitea Admin Configuration ---"
+CYAN "Creating admin credentials for Gitea Git server..."
+
+# Generate secure password for Gitea admin
+GITEA_ADMIN_PASSWORD=$(openssl rand -base64 32)
+
+# Check if kubeseal is available
+if command -v kubeseal >/dev/null 2>&1; then
+    # Create SealedSecret for Gitea admin
+    kubectl create secret generic gitea-admin-secret \
+      --from-literal=password="$GITEA_ADMIN_PASSWORD" \
+      --namespace=gitea \
+      --dry-run=client -o yaml > gitea-admin-secret.yaml
+
+    kubeseal --format=yaml < gitea-admin-secret.yaml > kubernetes/system/gitea/values-secret.yaml
+    rm gitea-admin-secret.yaml
+    GREEN "✅ Encrypted kubernetes/system/gitea/values-secret.yaml created."
+else
+    YELLOW "⚠️  kubeseal not found. Creating template file instead."
+    YELLOW "   You can deploy Gitea with default credentials, then run setup again."
+    # Just copy the template
+    cp kubernetes/system/gitea/values-secret.yaml.template kubernetes/system/gitea/values-secret.yaml
+fi
+
+YELLOW "Gitea admin username: ztc-admin"
+YELLOW "Gitea admin password: $GITEA_ADMIN_PASSWORD"
+YELLOW "Access Gitea at: http://gitea.homelab.local (after deployment)"
+YELLOW "IMPORTANT: Save this password - it will be needed for first login!"
+
 # 5. Trust SSH Host Keys
 GREEN "\n--- SSH Host Configuration ---"
 CYAN "Do you want to automatically trust SSH host keys for your nodes? (y/n)"

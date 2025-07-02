@@ -6,8 +6,6 @@
 
 **Supersedes:** None (enhances ADR-001)
 
-**Contributors:** Claude Code, ZTC Team
-
 ## Context
 
 During the implementation and testing of ADR-001 (Secure and User-Friendly Secrets Management), we discovered significant gaps between the theoretical "zero-touch" user experience and the practical reality of deploying on clean systems. 

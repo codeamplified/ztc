@@ -1,0 +1,127 @@
+# ZTC Gitea Configuration for Private Workloads
+# Optimized for homelab environments with focus on reliability and resource efficiency
+
+gitea:
+  enabled: true
+  
+  # Gitea-specific configuration
+  gitea:
+    admin:
+      username: "ztc-admin"
+      password: "changeme123"  # Default password (override with existingSecret after setup)
+      email: "admin@homelab.local"
+      # existingSecret: gitea-admin-secret  # Uncomment after running 'make setup'
+      
+    config:
+      server:
+        DOMAIN: "gitea.homelab.local"
+        HTTP_PORT: 3000
+        ROOT_URL: "http://gitea.homelab.local"
+        DISABLE_SSH: false
+        SSH_DOMAIN: "gitea.homelab.local" 
+        SSH_PORT: 30022
+        START_SSH_SERVER: false  # Use external SSH via NodePort
+        LFS_START_SERVER: false  # Disable LFS to save resources
+        
+      database:
+        DB_TYPE: postgres
+        
+      service:
+        DISABLE_REGISTRATION: true  # Only admin can create users
+        REQUIRE_SIGNIN_VIEW: false  # Allow public repository viewing
+        DEFAULT_KEEP_EMAIL_PRIVATE: true
+        DEFAULT_ALLOW_CREATE_ORGANIZATION: false
+        
+      repository:
+        DEFAULT_PRIVATE: true  # Private repositories by default
+        DEFAULT_PUSH_CREATE_PRIVATE: true
+        
+      security:
+        INSTALL_LOCK: true  # Prevent reinstallation
+        
+      log:
+        LEVEL: Warn  # Reduce log verbosity for homelab
+        
+  # Resource configuration for homelab environments
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      
+  # Persistence configuration
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: "nfs-client"  # Use shared storage for multi-node access
+    
+  # PostgreSQL configuration (bundled database)
+  postgresql:
+    enabled: true
+    auth:
+      postgresPassword: "gitea"
+      database: "gitea"
+    primary:
+      persistence:
+        enabled: true
+        size: 2Gi
+        storageClass: "local-path"  # Database can use local storage
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 50m
+          memory: 64Mi
+  
+  # Disable HA PostgreSQL
+  postgresql-ha:
+    enabled: false
+        
+  # Service configuration
+  service:
+    http:
+      type: ClusterIP
+      port: 3000
+    ssh:
+      type: NodePort
+      port: 22
+      nodePort: 30022  # Fixed port for SSH access
+      
+  # Ingress configuration for Traefik
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: web
+    hosts:
+      - host: gitea.homelab.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  # Pod security and operational settings
+  podSecurityContext:
+    fsGroup: 1000
+    
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    
+  # Health checks (generous timeouts for homelab environments)
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 60  # Give more time for startup
+    periodSeconds: 10
+    timeoutSeconds: 5
+    
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 30  # Wait longer before checking readiness
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6  # Allow more failures during startup

@@ -79,7 +79,7 @@ infra: storage cluster system-components argocd ## Setup complete infrastructure
 
 ##@ System Components (Helm Charts)
 
-system-components: monitoring-stack storage-stack ## Deploy all system components
+system-components: monitoring-stack storage-stack gitea-stack ## Deploy all system components
 	@echo "$(GREEN)✅ All system components deployed$(RESET)"
 
 monitoring-stack: ## Deploy monitoring stack (Prometheus, Grafana, AlertManager)
@@ -104,6 +104,25 @@ storage-stack: ## Deploy storage components (local-path + NFS hybrid)
 		--values ./kubernetes/system/storage/values.yaml \
 		--wait --timeout 5m
 	@echo "$(GREEN)✅ Storage stack deployed (local-path + NFS)$(RESET)"
+
+gitea-stack: ## Deploy Gitea Git server for private workloads
+	@echo "$(CYAN)Deploying Gitea Git server...$(RESET)"
+	@if [ ! -f kubernetes/system/gitea/values-secret.yaml ]; then \
+		echo "$(YELLOW)⚠️  Creating values-secret.yaml from template...$(RESET)"; \
+		cp kubernetes/system/gitea/values-secret.yaml.template kubernetes/system/gitea/values-secret.yaml; \
+		echo "$(RED)❗ Run 'make setup' to generate proper SealedSecret for Gitea admin$(RESET)"; \
+	fi
+	@echo "$(CYAN)Updating Helm dependencies...$(RESET)"
+	helm dependency update kubernetes/system/gitea/
+	@echo "$(CYAN)Installing Gitea (this may take 2-3 minutes)...$(RESET)"
+	helm upgrade --install gitea ./kubernetes/system/gitea \
+		--namespace gitea --create-namespace \
+		--values ./kubernetes/system/gitea/values.yaml \
+		--wait --timeout 15m
+	@echo "$(GREEN)✅ Gitea Git server deployed$(RESET)"
+	@echo "$(CYAN)Access Gitea UI: http://gitea.homelab.local$(RESET)"
+	@echo "$(CYAN)SSH clone: git clone git@gitea.homelab.local:30022/user/repo.git$(RESET)"
+	@echo "$(YELLOW)Default admin: ztc-admin / changeme123 (change after first login)$(RESET)"
 
 ##@ Kubernetes (Legacy/Direct)
 
@@ -160,6 +179,16 @@ install-sealed-secrets: ## Install Sealed Secrets controller
 	@echo "$(CYAN)Waiting for Sealed Secrets controller to be ready...$(RESET)"
 	kubectl wait --for=condition=available deployment/sealed-secrets-controller -n kube-system --timeout=300s
 	@echo "$(GREEN)✅ Sealed Secrets controller installed$(RESET)"
+
+##@ Git Server (Gitea)
+
+gitea-admin-password: ## Get Gitea admin password
+	@echo "$(CYAN)Gitea admin credentials:$(RESET)"
+	@echo "Username: ztc-admin"
+	@echo -n "Password: "
+	@kubectl get secret -n gitea gitea-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "$(RED)❌ Gitea not deployed or secret not found$(RESET)"
+	@echo ""
+	@echo "$(CYAN)Access: http://gitea.homelab.local$(RESET)"
 
 ##@ GitOps (ArgoCD)
 
@@ -326,6 +355,10 @@ help: ## Display this help
 	@echo "  system-components       Deploy all system components"
 	@echo "  monitoring-stack        Deploy monitoring (Prometheus, Grafana)"
 	@echo "  storage-stack           Deploy hybrid storage (local-path + NFS)"
+	@echo "  gitea-stack             Deploy Gitea Git server for private workloads"
+	@echo ""
+	@echo "Git Server (Gitea):"
+	@echo "  gitea-admin-password    Get Gitea admin credentials"
 	@echo ""
 	@echo "GitOps (ArgoCD):"
 	@echo "  argocd          Install and configure ArgoCD"

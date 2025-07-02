@@ -1,0 +1,18 @@
+metadata:
+  name: uptime-kuma
+  description: "Beautiful service monitoring and status page"
+  namespace: uptime-kuma
+  category: monitoring
+  
+defaults:
+  storage_size: "1Gi"
+  storage_class: "local-path"
+  hostname: "status.homelab.local"
+  image_tag: "1.23.15"  # Pinned version for stability
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "200m"

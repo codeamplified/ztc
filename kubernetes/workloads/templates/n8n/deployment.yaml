@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n
+  namespace: $WORKLOAD_NAMESPACE
+  labels:
+    app: n8n
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: n8n
+  template:
+    metadata:
+      labels:
+        app: n8n
+    spec:
+      containers:
+      - name: n8n
+        image: n8nio/n8n:$IMAGE_TAG
+        ports:
+        - containerPort: 5678
+        env:
+        - name: N8N_HOST
+          value: "$HOSTNAME"
+        resources:
+          requests:
+            memory: $MEMORY_REQUEST
+            cpu: $CPU_REQUEST
+          limits:
+            memory: $MEMORY_LIMIT
+            cpu: $CPU_LIMIT
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3

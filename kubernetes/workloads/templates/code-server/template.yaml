@@ -1,0 +1,19 @@
+metadata:
+  name: code-server
+  description: "VS Code development environment in browser"
+  namespace: code-server
+  category: development
+  
+defaults:
+  storage_size: "10Gi"
+  storage_class: "nfs-client"  # Persistent workspace across devices
+  hostname: "code.homelab.local"
+  image_tag: "4.96.2"  # Pinned version for stability
+  password: "auto-generated"
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"

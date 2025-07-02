@@ -1,0 +1,19 @@
+metadata:
+  name: vaultwarden
+  description: "Self-hosted Bitwarden-compatible password manager"
+  namespace: vaultwarden
+  category: security
+  
+defaults:
+  storage_size: "2Gi"
+  storage_class: "nfs-client"  # Shared storage for family access
+  hostname: "vault.homelab.local"
+  image_tag: "1.32.0"  # Pinned version for stability
+  admin_token: "auto-generated"
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "200m"

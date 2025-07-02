@@ -294,6 +294,131 @@ make setup  # Regenerate credentials
 - **Startup time**: Allow 2-3 minutes for initial database setup
 - **Resource requirements**: ~300MB RAM total for Gitea + PostgreSQL
 
+## Private Workload Templates
+
+**ZERO-TOUCH DEPLOYMENTS**: Pre-configured templates for common homelab services that deploy with single commands via GitOps.
+
+### Quick Deployment
+```bash
+# Deploy essential homelab services with one command each
+make deploy-n8n            # Workflow automation platform
+make deploy-uptime-kuma    # Service monitoring and status page
+make deploy-homepage       # Service dashboard
+make deploy-vaultwarden    # Password manager
+make deploy-code-server    # VS Code development environment
+
+# Check deployment status
+make list-workloads
+make workload-status WORKLOAD=n8n
+```
+
+### Available Templates
+
+**Automation**
+- **n8n**: Workflow automation platform (256-512Mi RAM, local-path storage)
+  - *Note: For heavy usage with many workflows, consider increasing memory: `make deploy-n8n MEMORY_LIMIT=1Gi`*
+
+**Monitoring**  
+- **Uptime Kuma**: Service monitoring and status pages (64-128Mi RAM, local-path storage)
+
+**Organization**
+- **Homepage**: Modern service dashboard (32-64Mi RAM, local-path storage)
+
+**Security**
+- **Vaultwarden**: Self-hosted password manager (64-128Mi RAM, nfs-client storage)
+
+**Development**
+- **Code Server**: VS Code in browser (256-512Mi RAM, nfs-client storage)
+
+### Template Architecture
+
+Each template automatically:
+1. **Processes configuration** using yq and envsubst for variable substitution
+2. **Creates private Git repository** in Gitea for GitOps workflow
+3. **Generates Kubernetes manifests** with homelab-optimized resource limits
+4. **Creates ArgoCD Application** for automated deployment and sync
+5. **Monitors deployment** progress and provides access information
+
+### Template Customization
+```bash
+# Override template defaults with user-friendly syntax
+make deploy-n8n STORAGE_SIZE=10Gi
+make deploy-n8n HOSTNAME=automation.homelab.local  
+make deploy-code-server MEMORY_LIMIT=1Gi STORAGE_CLASS=local-path
+
+# Image version pinning for stability
+make deploy-n8n IMAGE_TAG=1.64.0        # Use specific n8n version
+make deploy-vaultwarden IMAGE_TAG=1.31.0 # Use specific Vaultwarden version
+
+# Multiple overrides
+make deploy-vaultwarden STORAGE_SIZE=5Gi HOSTNAME=passwords.homelab.local IMAGE_TAG=1.31.0
+
+# Available override options:
+# STORAGE_SIZE, STORAGE_CLASS, HOSTNAME, IMAGE_TAG
+# MEMORY_REQUEST, MEMORY_LIMIT, CPU_REQUEST, CPU_LIMIT
+# ADMIN_TOKEN, PASSWORD (for applicable services)
+```
+
+### Workload Management
+```bash
+# List all deployed workloads
+kubectl get applications -n argocd -l app.kubernetes.io/part-of=ztc-workloads
+
+# Check specific workload status
+kubectl get pods,svc,ingress -n n8n
+
+# Access workload URLs (example hostnames)
+curl http://n8n.homelab.local
+curl http://status.homelab.local
+curl http://home.homelab.local
+curl http://vault.homelab.local
+curl http://code.homelab.local
+
+# Remove workload (manual cleanup required)
+kubectl delete application workload-n8n -n argocd
+kubectl delete namespace n8n
+```
+
+### Benefits vs Manual Deployment
+
+**Before Templates (8+ manual steps, 15-30 minutes)**:
+1. Access Gitea web UI and create repository
+2. Clone repository locally
+3. Create directory structure for applications
+4. Write Kubernetes YAML manifests (deployment, service, ingress, PVC)
+5. Configure resource limits, storage classes, and networking
+6. Commit and push to private repository  
+7. Create ArgoCD Application manifest
+8. Apply ArgoCD configuration and wait for sync
+
+**After Templates (1 command, 2-3 minutes)**:
+```bash
+make deploy-n8n
+# 🔄 Deploying n8n workflow automation...
+# ✅ Repository ztc-admin/workloads updated
+# ✅ n8n manifests generated and committed
+# ✅ ArgoCD application created
+# 🔄 Waiting for deployment...
+# ✅ n8n deployed successfully!
+# 🌐 Access: http://n8n.homelab.local
+```
+
+### Learning Examples vs Production Templates
+
+ZTC provides both educational tools and production applications:
+
+**Learning Examples** (`kubernetes/learning-examples/`):
+- 🎓 **Purpose**: Learn Kubernetes concepts and test cluster functionality
+- 🧪 **Content**: Hello-world app, storage demos, basic patterns
+- 📚 **Usage**: Reference for custom workloads, troubleshooting
+- 🔄 **Deployment**: Automatically via ArgoCD `learning-examples` application
+
+**Workload Templates** (`kubernetes/workloads/templates/`):
+- 🚀 **Purpose**: Deploy production-ready homelab applications  
+- 🏆 **Content**: n8n, Uptime Kuma, Homepage, Vaultwarden, Code Server
+- ⚡ **Usage**: One-command deployment with automated GitOps
+- 🛠️ **Deployment**: `make deploy-<service>` with customization options
+
 ## Network Configuration
 
 - **Subnet**: 192.168.50.0/24 (update `ansible/inventory/hosts.ini` for your network)

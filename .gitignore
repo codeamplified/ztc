@@ -3,29 +3,21 @@ ansible/inventory/secrets.yml
 .vault_pass
 .ansible-vault-password
 
-# Kubernetes/Helm Secrets  
+# Kubernetes/Helm Secrets (plaintext only - SealedSecrets are safe to commit)
 *-secret.yaml
 *-secret.yml
 */values-secret.yaml
 */values-secret.yml
 
-# OS specific files
-.DS_Store
-Thumbs.db
+# Temporary secret files created during setup/development
+*-secret-temp.yaml
+sealed-secrets-key*.yaml
 
-# IDE files
-.vscode/
-.idea/
+# kubeseal temporary files
+kubeseal-*.yaml
 
 # Logs
 *.log
-
-# Kubeconfig files (if stored locally)
-kubeconfig*
-*.kubeconfig
-
-# Helm secrets plugin
-secrets.yaml
 
 # Helm chart dependencies (downloaded binaries)
 charts/

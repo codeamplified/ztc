@@ -309,3 +309,6 @@ git commit -m "docs(adr): add ADR-002 resilient infrastructure automation"
   - Use `make lint` to validate Ansible playbooks and YAML syntax
   - Use `make validate` to validate Kubernetes manifests
   - Run validation before deploying changes
+
+## ADR References
+- Use @docs/adr/adr-template.md for ADR format

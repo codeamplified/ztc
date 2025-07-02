@@ -36,12 +36,14 @@ backup-secrets: ## Backup all critical secrets to an encrypted archive
 		exit 1; \
 	fi
 	@echo "$(CYAN)Enter a password for the backup archive:$(RESET)"
-	@read -s BACKUP_PASSWORD; \
+	@read BACKUP_PASSWORD; \
+	kubectl get secret -n kube-system $$(kubectl get secrets -n kube-system -o name | grep sealed-secrets-key | head -1 | cut -d'/' -f2) -o yaml > /tmp/sealed-secrets-key.yaml; \
 	tar -czf - \
 		.ansible-vault-password \
 		ansible/inventory/secrets.yml \
-		<(kubectl get secret -n kube-system sealed-secrets-key -o yaml) \
-		| gpg --symmetric --cipher-algo AES256 --batch --yes --passphrase "$BACKUP_PASSWORD" -o ztc-secrets-backup-$(shell date +%Y-%m-%d).tar.gz.gpg
+		/tmp/sealed-secrets-key.yaml \
+		| gpg --symmetric --cipher-algo AES256 --batch --yes --passphrase "$$BACKUP_PASSWORD" -o ztc-secrets-backup-$(shell date +%Y-%m-%d).tar.gz.gpg; \
+	rm -f /tmp/sealed-secrets-key.yaml
 	@echo "$(GREEN)✅ Secrets backup created: ztc-secrets-backup-$(shell date +%Y-%m-%d).tar.gz.gpg$(RESET)"
 	@echo "$(YELLOW)ACTION REQUIRED: Copy this file to a safe, offline location.$(RESET)"
 

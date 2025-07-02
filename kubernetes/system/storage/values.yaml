@@ -7,11 +7,11 @@ global:
   defaultStorageClass: "local-path"
 
 # Local Path Provisioner (k3s built-in)
-# This is typically already installed with k3s, but we define it here to be explicit.
+# This is already installed with k3s, so we skip creation
 localPath:
-  enabled: true
-  # Make local-path the default storage class
-  isDefaultClass: true
+  enabled: false  # Don't create - k3s already provides this
+  # k3s local-path is already the default storage class
+  isDefaultClass: false
   
 # NFS Storage Provisioner
 nfs:

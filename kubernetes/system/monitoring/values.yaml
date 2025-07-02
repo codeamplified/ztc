@@ -26,7 +26,7 @@ kube-prometheus-stack:
     # Persistence using configurable storage
     persistence:
       enabled: true
-      storageClassName: {{ .Values.global.storageClass | quote }}
+      storageClassName: "local-path"
       size: 2Gi
       accessModes:
         - ReadWriteOnce
@@ -61,7 +61,7 @@ kube-prometheus-stack:
       storageSpec:
         volumeClaimTemplate:
           spec:
-            storageClassName: {{ .Values.global.storageClass | quote }}
+            storageClassName: "local-path"
             accessModes: ["ReadWriteOnce"]
             resources:
               requests:
@@ -90,7 +90,7 @@ kube-prometheus-stack:
       storage:
         volumeClaimTemplate:
           spec:
-            storageClassName: {{ .Values.global.storageClass | quote }}
+            storageClassName: "local-path"
             accessModes: ["ReadWriteOnce"]
             resources:
               requests:

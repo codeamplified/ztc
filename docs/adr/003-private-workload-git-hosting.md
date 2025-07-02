@@ -83,7 +83,7 @@ This decision directly aligns with our strategic goals. It solves the immediate 
 
 ## Future Considerations
 
-The ideas presented in the more comprehensive `ADR-004-future-platform-considerations.md` (formerly `003-self-hosted-gitops-platform.md`) are not discarded, but deferred. After this lightweight solution is implemented, proven to be reliable, and has seen user adoption, we can re-evaluate adding more advanced features like:
+After this lightweight solution is implemented, proven to be reliable, and has seen user adoption, we can evaluate adding more advanced features like:
 
 *   In-cluster CI/CD runners.
 *   A self-hosted container registry.

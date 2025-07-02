@@ -190,6 +190,48 @@ gitea-admin-password: ## Get Gitea admin password
 	@echo ""
 	@echo "$(CYAN)Access: http://gitea.homelab.local$(RESET)"
 
+##@ Private Workloads
+
+deploy-n8n: ## Deploy n8n workflow automation platform
+	@$(call deploy_workload,n8n)
+
+deploy-uptime-kuma: ## Deploy Uptime Kuma service monitoring
+	@$(call deploy_workload,uptime-kuma)
+
+deploy-homepage: ## Deploy Homepage service dashboard
+	@$(call deploy_workload,homepage)
+
+deploy-vaultwarden: ## Deploy Vaultwarden password manager
+	@$(call deploy_workload,vaultwarden)
+
+deploy-code-server: ## Deploy Code Server development environment
+	@$(call deploy_workload,code-server)
+
+# Helper function to deploy workloads with override support
+define deploy_workload
+	$(if $(STORAGE_SIZE),export OVERRIDE_STORAGE_SIZE="$(STORAGE_SIZE)";) \
+	$(if $(STORAGE_CLASS),export OVERRIDE_STORAGE_CLASS="$(STORAGE_CLASS)";) \
+	$(if $(HOSTNAME),export OVERRIDE_HOSTNAME="$(HOSTNAME)";) \
+	$(if $(IMAGE_TAG),export OVERRIDE_IMAGE_TAG="$(IMAGE_TAG)";) \
+	$(if $(MEMORY_REQUEST),export OVERRIDE_MEMORY_REQUEST="$(MEMORY_REQUEST)";) \
+	$(if $(MEMORY_LIMIT),export OVERRIDE_MEMORY_LIMIT="$(MEMORY_LIMIT)";) \
+	$(if $(CPU_REQUEST),export OVERRIDE_CPU_REQUEST="$(CPU_REQUEST)";) \
+	$(if $(CPU_LIMIT),export OVERRIDE_CPU_LIMIT="$(CPU_LIMIT)";) \
+	$(if $(ADMIN_TOKEN),export OVERRIDE_ADMIN_TOKEN="$(ADMIN_TOKEN)";) \
+	$(if $(PASSWORD),export OVERRIDE_PASSWORD="$(PASSWORD)";) \
+	./provisioning/lib/deploy-workload.sh $(1)
+endef
+
+list-workloads: ## List all deployed workloads
+	@kubectl get applications -n argocd -l app.kubernetes.io/part-of=ztc-workloads
+
+workload-status: ## Check specific workload status (usage: make workload-status WORKLOAD=n8n)
+	@if [ -z "$(WORKLOAD)" ]; then \
+		echo "$(RED)❌ Usage: make workload-status WORKLOAD=<name>$(RESET)"; \
+		exit 1; \
+	fi
+	@kubectl get pods,svc,ingress -n $(WORKLOAD) 2>/dev/null || echo "$(YELLOW)⚠️  Workload $(WORKLOAD) not found$(RESET)"
+
 ##@ GitOps (ArgoCD)
 
 argocd-apps: ## Deploy ArgoCD applications (private workloads)
@@ -356,6 +398,21 @@ help: ## Display this help
 	@echo "  monitoring-stack        Deploy monitoring (Prometheus, Grafana)"
 	@echo "  storage-stack           Deploy hybrid storage (local-path + NFS)"
 	@echo "  gitea-stack             Deploy Gitea Git server for private workloads"
+	@echo ""
+	@echo "Private Workloads:"
+	@echo "  deploy-n8n              Deploy n8n workflow automation platform"
+	@echo "  deploy-uptime-kuma      Deploy Uptime Kuma service monitoring"
+	@echo "  deploy-homepage         Deploy Homepage service dashboard"
+	@echo "  deploy-vaultwarden      Deploy Vaultwarden password manager"
+	@echo "  deploy-code-server      Deploy Code Server development environment"
+	@echo "  list-workloads          List all deployed workloads"
+	@echo "  workload-status         Check specific workload status"
+	@echo ""
+	@echo "Workload Customization:"
+	@echo "  make deploy-n8n STORAGE_SIZE=10Gi HOSTNAME=automation.homelab.local"
+	@echo "  make deploy-vaultwarden MEMORY_LIMIT=256Mi IMAGE_TAG=1.31.0"
+	@echo "  Available overrides: STORAGE_SIZE, STORAGE_CLASS, HOSTNAME, IMAGE_TAG,"
+	@echo "                      MEMORY_REQUEST, MEMORY_LIMIT, CPU_REQUEST, CPU_LIMIT"
 	@echo ""
 	@echo "Git Server (Gitea):"
 	@echo "  gitea-admin-password    Get Gitea admin credentials"

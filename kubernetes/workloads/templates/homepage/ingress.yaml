@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: homepage-ingress
+  namespace: $WORKLOAD_NAMESPACE
+  labels:
+    app: homepage
+    app.kubernetes.io/name: homepage
+    app.kubernetes.io/part-of: ztc-workloads
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.rule: "Host(`$HOSTNAME`)"
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: $HOSTNAME
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: homepage-service
+            port:
+              number: 80

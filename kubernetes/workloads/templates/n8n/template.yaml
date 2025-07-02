@@ -1,0 +1,18 @@
+metadata:
+  name: n8n
+  description: "Workflow automation platform for homelab integrations"
+  namespace: n8n
+  category: automation
+  
+defaults:
+  storage_size: "5Gi"
+  storage_class: "local-path"
+  hostname: "n8n.homelab.local"
+  image_tag: "1.65.1"  # Pinned version for stability
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi" 
+      cpu: "300m"

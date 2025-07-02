@@ -1,0 +1,18 @@
+metadata:
+  name: homepage
+  description: "Modern dashboard for organizing homelab services"
+  namespace: homepage
+  category: dashboard
+  
+defaults:
+  storage_size: "500Mi"
+  storage_class: "local-path"
+  hostname: "home.homelab.local"
+  image_tag: "v0.9.2"  # Pinned version for stability
+  resources:
+    requests:
+      memory: "32Mi"
+      cpu: "25m"
+    limits:
+      memory: "64Mi"
+      cpu: "100m"

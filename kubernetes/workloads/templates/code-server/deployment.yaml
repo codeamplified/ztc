@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-server
+  namespace: $WORKLOAD_NAMESPACE
+  labels:
+    app: code-server
+    app.kubernetes.io/name: code-server
+    app.kubernetes.io/part-of: ztc-workloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: code-server
+  template:
+    metadata:
+      labels:
+        app: code-server
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+      containers:
+      - name: code-server
+        image: codercom/code-server:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: PASSWORD
+          value: "$PASSWORD"
+        - name: HASHED_PASSWORD
+          value: ""
+        - name: SUDO_PASSWORD
+          value: "$PASSWORD"
+        - name: PROXY_DOMAIN
+          value: "$HOSTNAME"
+        args:
+        - --bind-addr
+        - 0.0.0.0:8080
+        - --user-data-dir
+        - /home/coder/.local/share/code-server
+        - --auth
+        - password
+        - /home/coder/workspace
+        volumeMounts:
+        - name: code-server-data
+          mountPath: /home/coder
+        resources:
+          requests:
+            memory: $MEMORY_REQUEST
+            cpu: $CPU_REQUEST
+          limits:
+            memory: $MEMORY_LIMIT
+            cpu: $CPU_LIMIT
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: code-server-data
+        persistentVolumeClaim:
+          claimName: code-server-pvc

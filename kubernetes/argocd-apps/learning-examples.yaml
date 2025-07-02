@@ -1,17 +1,17 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: example-workloads
+  name: learning-examples
   namespace: argocd
   labels:
-    app.kubernetes.io/name: example-workloads
+    app.kubernetes.io/name: learning-examples
     app.kubernetes.io/part-of: ztc
   # Add finalizer to ensure proper cleanup
   finalizers:
     - resources-finalizer.argocd.argoproj.io
   annotations:
     argocd.argoproj.io/sync-wave: "1"
-    example.com/description: "Default example workloads - replace with your private repo when ready"
+    ztc.homelab/description: "Educational examples for learning Kubernetes concepts and testing cluster functionality"
     # Available storage classes for workloads:
     # - local-path (default): Fast local storage for single-pod workloads
     # - nfs-client: Shared storage for multi-pod applications and persistent data
@@ -21,21 +21,14 @@ spec:
   
   # Source repository configuration
   source:
-    # Default: Local example workloads from ZTC repository
-    # Alternative: Use internal Gitea server (uncomment below after setting up private repo)
+    # Educational examples from ZTC repository for learning and testing
     repoURL: https://github.com/skol/ztc.git
     targetRevision: main
-    path: kubernetes/example-workloads
+    path: kubernetes/learning-examples
     
-    # To use internal Gitea instead, replace the above with:
-    # repoURL: http://gitea-http.gitea.svc.cluster.local:3000/ztc-admin/workloads.git
-    # targetRevision: main
-    # path: apps
-    
-    # Optional: Use specific directory structure
-    # directory:
-    #   recurse: true
-    #   include: "*.yaml"
+    # Note: For production workloads, use workload templates instead:
+    #   make deploy-n8n, make deploy-uptime-kuma, etc.
+    # These examples are for learning and testing purposes only
     
   # Destination cluster and namespace
   destination:

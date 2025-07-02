@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: n8n-ingress
+  namespace: $WORKLOAD_NAMESPACE
+  labels:
+    app: n8n
+    app.kubernetes.io/name: n8n
+    app.kubernetes.io/part-of: ztc-workloads
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.rule: "Host(`$HOSTNAME`)"
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: $HOSTNAME
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: n8n-service
+            port:
+              number: 80

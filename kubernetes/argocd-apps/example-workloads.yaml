@@ -22,8 +22,8 @@ spec:
   # Source repository configuration
   source:
     # Default: Local example workloads (change to your private repo when ready)
-    repoURL: https://github.com/codeamplified/ztc.git
-    targetRevision: HEAD
+    repoURL: https://github.com/skol/ztc.git
+    targetRevision: main
     path: kubernetes/example-workloads
     
     # Optional: Use specific directory structure

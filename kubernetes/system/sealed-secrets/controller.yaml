@@ -157,8 +157,6 @@ spec:
               drop:
                 - ALL
             readOnlyRootFilesystem: true
-            stdin: false
-            tty: false
           volumeMounts:
             - mountPath: /tmp
               name: tmp

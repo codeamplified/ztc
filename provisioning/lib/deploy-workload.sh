@@ -110,7 +110,9 @@ create_repository() {
 
 # Clone or update workloads repository
 setup_repository() {
-    local repo_url="$GITEA_URL/$GITEA_USER/$WORKLOADS_REPO.git"
+    # Include credentials in repo URL for private repository access
+    local repo_url_base="$GITEA_URL/$GITEA_USER/$WORKLOADS_REPO.git"
+    local repo_url="$(echo "$GITEA_URL" | sed 's|http://|http://'"$GITEA_USER"':'"$GITEA_PASSWORD"'@|')/$GITEA_USER/$WORKLOADS_REPO.git"
     local repo_dir="$TEMP_DIR/workloads"
     
     # Ensure repository exists

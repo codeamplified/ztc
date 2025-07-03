@@ -1,6 +1,6 @@
 # Zero Touch Cluster Makefile
 
-.PHONY: help setup check infra storage cluster system-components monitoring-stack storage-stack deploy-storage deploy-nfs enable-nfs disable-nfs argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate logs
+.PHONY: help setup check infra storage cluster copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack deploy-storage deploy-nfs enable-nfs disable-nfs argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs
 
 # Default target
 .DEFAULT_GOAL := help
@@ -35,8 +35,10 @@ backup-secrets: ## Backup all critical secrets to an encrypted archive
 		echo "$(RED)❌ Ansible Vault password file not found. Run 'make setup' first.$(RESET)"; \
 		exit 1; \
 	fi
-	@echo "$(CYAN)Enter a password for the backup archive:$(RESET)"
-	@read BACKUP_PASSWORD; \
+	@echo "$(CYAN)Auto-generating secure backup password...$(RESET)"
+	@BACKUP_PASSWORD=$$(openssl rand -base64 32); \
+	echo "$(YELLOW)Backup password: $$BACKUP_PASSWORD$(RESET)"; \
+	echo "$(YELLOW)Save this password - you'll need it to recover secrets!$(RESET)"; \
 	kubectl get secret -n kube-system $$(kubectl get secrets -n kube-system -o name | grep sealed-secrets-key | head -1 | cut -d'/' -f2) -o yaml > /tmp/sealed-secrets-key.yaml; \
 	tar -czf - \
 		.ansible-vault-password \
@@ -62,6 +64,21 @@ recover-secrets: ## Recover secrets from an encrypted archive
 	@echo "$(GREEN)✅ Secrets recovered successfully.$(RESET)"
 
 
+copy-kubeconfig: ## Copy kubeconfig from master node to local kubectl config
+	@echo "$(CYAN)Setting up kubectl configuration...$(RESET)"
+	@if [ -f ~/.kube/k3s-master-config ]; then \
+		cp ~/.kube/k3s-master-config ~/.kube/config; \
+		echo "$(GREEN)✅ Kubeconfig copied to ~/.kube/config$(RESET)"; \
+	else \
+		echo "$(RED)❌ Kubeconfig not found. Cluster deployment may have failed.$(RESET)"; \
+		exit 1; \
+	fi
+
+post-cluster-setup: ## Create sealed secrets for applications
+	@echo "$(CYAN)Creating application sealed secrets...$(RESET)"
+	@chmod +x provisioning/lib/post-cluster-setup.sh
+	@./provisioning/lib/post-cluster-setup.sh
+
 ##@ Infrastructure Deployment
 
 storage: check ## Setup K8s storage server
@@ -72,8 +89,9 @@ cluster: check ## Setup k3s cluster
 	@echo "$(CYAN)Deploying k3s cluster...$(RESET)"
 	cd ansible && ansible-playbook playbooks/02-k3s-cluster.yml
 
-infra: storage cluster system-components argocd ## Setup complete infrastructure with GitOps
+infra: storage cluster copy-kubeconfig install-sealed-secrets post-cluster-setup system-components argocd ## Setup complete infrastructure with GitOps
 	@echo "$(GREEN)✅ Complete Zero Touch Cluster infrastructure deployed!$(RESET)"
+	@echo "$(CYAN)Check credentials in credentials.txt file$(RESET)"
 	@echo "$(CYAN)Access ArgoCD UI: kubectl port-forward svc/argocd-server -n argocd 8080:80$(RESET)"
 	@echo "$(CYAN)ArgoCD URL: http://argocd.homelab.local (after DNS setup)$(RESET)"
 
@@ -363,6 +381,69 @@ validate: ## Validate Kubernetes manifests against the cluster's API
 	@echo "$(CYAN)Dry-running Kubernetes manifests against cluster...$(RESET)"
 	@find kubernetes/ -name "*.yaml" -o -name "*.yml" | xargs kubectl apply --dry-run=client -f
 
+teardown: ## ⚠️  DESTRUCTIVE: Complete cluster teardown for development iteration
+	@echo "$(RED)⚠️  WARNING: This will completely destroy the cluster and all data!$(RESET)"
+	@echo "$(YELLOW)This operation will:$(RESET)"
+	@echo "  • Uninstall k3s from all nodes"
+	@echo "  • Clean all persistent storage (NFS)"
+	@echo "  • Remove local secrets and configuration files"
+	@echo "  • Clean SSH host keys"
+	@echo "  • Remove generated ISOs and backups"
+	@echo ""
+	@echo "$(RED)This is IRREVERSIBLE and intended for development workflow.$(RESET)"
+	@echo ""
+	@read -p "Type 'TEARDOWN' to confirm complete cluster destruction: " confirm; \
+	if [ "$${confirm}" != "TEARDOWN" ]; then \
+		echo "$(YELLOW)❌ Teardown cancelled.$(RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(CYAN)🚨 Starting complete cluster teardown...$(RESET)"
+	@echo "$(CYAN)Step 1/6: Uninstalling k3s from cluster nodes...$(RESET)"
+	@for node in k3s-master k3s-worker-01 k3s-worker-02 k3s-worker-03; do \
+		echo "$(CYAN)  Checking $${node}...$(RESET)"; \
+		if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no ubuntu@$$(ansible-inventory -i ansible/inventory/hosts.ini --host $${node} 2>/dev/null | grep ansible_host | cut -d'"' -f4) 'test -f /usr/local/bin/k3s-uninstall.sh || test -f /usr/local/bin/k3s-agent-uninstall.sh' 2>/dev/null; then \
+			echo "$(CYAN)    Uninstalling k3s from $${node}...$(RESET)"; \
+			ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@$$(ansible-inventory -i ansible/inventory/hosts.ini --host $${node} 2>/dev/null | grep ansible_host | cut -d'"' -f4) 'sudo /usr/local/bin/k3s-uninstall.sh 2>/dev/null || sudo /usr/local/bin/k3s-agent-uninstall.sh 2>/dev/null || true' || echo "$(YELLOW)    Warning: Could not uninstall k3s from $${node}$(RESET)"; \
+		else \
+			echo "$(YELLOW)    No k3s installation found on $${node}$(RESET)"; \
+		fi; \
+	done
+	@echo "$(CYAN)Step 2/6: Cleaning NFS storage...$(RESET)"
+	@if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no ubuntu@$$(ansible-inventory -i ansible/inventory/hosts.ini --host k8s-storage 2>/dev/null | grep ansible_host | cut -d'"' -f4) 'test -d /export/k8s' 2>/dev/null; then \
+		echo "$(CYAN)  Cleaning NFS storage directory...$(RESET)"; \
+		ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@$$(ansible-inventory -i ansible/inventory/hosts.ini --host k8s-storage 2>/dev/null | grep ansible_host | cut -d'"' -f4) 'sudo systemctl stop nfs-kernel-server 2>/dev/null; sudo rm -rf /export/k8s/* 2>/dev/null; sudo systemctl start nfs-kernel-server 2>/dev/null' || echo "$(YELLOW)  Warning: Could not clean NFS storage$(RESET)"; \
+	else \
+		echo "$(YELLOW)  No NFS storage found$(RESET)"; \
+	fi
+	@echo "$(CYAN)Step 3/6: Removing local secrets and configuration...$(RESET)"
+	@rm -f ansible/inventory/secrets.yml || true
+	@rm -f .ansible-vault-password || true
+	@rm -f ansible/.vault_pass || true
+	@rm -f ztc-secrets-backup-*.tar.gz.gpg || true
+	@echo "$(CYAN)Step 4/6: Cleaning generated files...$(RESET)"
+	@rm -f provisioning/downloads/*.iso || true
+	@echo "$(CYAN)Step 5/6: Cleaning SSH host keys...$(RESET)"
+	@for node in k3s-master k3s-worker-01 k3s-worker-02 k3s-worker-03 k8s-storage; do \
+		node_ip=$$(ansible-inventory -i ansible/inventory/hosts.ini --host $${node} 2>/dev/null | grep ansible_host | cut -d'"' -f4); \
+		if [ -n "$${node_ip}" ]; then \
+			ssh-keygen -R $${node_ip} 2>/dev/null || true; \
+		fi; \
+	done
+	@echo "$(CYAN)Step 6/6: Final verification...$(RESET)"
+	@echo "$(GREEN)✅ Complete cluster teardown finished!$(RESET)"
+	@echo ""
+	@echo "$(CYAN)🚀 Ready for fresh setup:$(RESET)"
+	@echo "  1. Run: make setup"
+	@echo "  2. Create USB drives for nodes"
+	@echo "  3. Boot nodes and run: make infra"
+	@echo ""
+	@echo "$(YELLOW)📋 Teardown Summary:$(RESET)"
+	@echo "  • k3s uninstalled from all nodes"
+	@echo "  • NFS storage cleaned"
+	@echo "  • Local secrets removed"
+	@echo "  • Generated files cleaned"
+	@echo "  • SSH host keys reset"
+
 ##@ Information
 
 logs: ## Show cluster logs (kubectl logs)
@@ -375,23 +456,25 @@ logs: ## Show cluster logs (kubectl logs)
 help: ## Display this help
 	@echo "Zero Touch Cluster - Kubernetes Infrastructure Automation"
 	@echo ""
-	@echo "Quick Start (Autoinstall):"
-	@echo "  make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-master IP_OCTET=10  # Create USB"
-	@echo "  make autoinstall-usb DEVICE=/dev/sdb         # Interactive mode"
-	@echo "  make infra                                  # Deploy after nodes boot"
+	@echo "Streamlined Setup (Recommended):"
+	@echo "  make setup      # Create infrastructure secrets (pre-cluster)"
+	@echo "  make infra      # Deploy complete infrastructure (storage + cluster + apps)"
 	@echo ""
-	@echo "Quick Start (Manual):"
-	@echo "  make setup      # Initial setup"
-	@echo "  make infra      # Deploy infrastructure"
+	@echo "Quick Start (Autoinstall):"
+	@echo "  make setup                                                          # Create secrets"
+	@echo "  make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-master IP_OCTET=10  # Create USB"
+	@echo "  make infra                                                          # Deploy after nodes boot"
 	@echo ""
 	@echo "Setup & Prerequisites:"
 	@echo "  setup           Create secrets templates and check prerequisites"
 	@echo "  check           Check prerequisites and system readiness"
 	@echo ""
 	@echo "Infrastructure:"
-	@echo "  storage         Setup K8s storage server"
-	@echo "  cluster         Setup k3s cluster"
-	@echo "  infra           Setup complete infrastructure with GitOps"
+	@echo "  storage               Setup K8s storage server"
+	@echo "  cluster               Setup k3s cluster"
+	@echo "  copy-kubeconfig       Copy kubeconfig from master to local kubectl"
+	@echo "  post-cluster-setup    Create application sealed secrets"
+	@echo "  infra                 Setup complete infrastructure with GitOps (recommended)"
 	@echo ""
 	@echo "System Components (Helm):"
 	@echo "  system-components       Deploy all system components"
@@ -443,6 +526,7 @@ help: ## Display this help
 	@echo "Development:"
 	@echo "  lint            Lint Ansible playbooks and YAML files"
 	@echo "  validate        Validate Kubernetes manifests"
+	@echo "  teardown        ⚠️  DESTRUCTIVE: Complete cluster teardown for development"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  status          Check cluster status"

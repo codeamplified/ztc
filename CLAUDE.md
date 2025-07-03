@@ -14,15 +14,15 @@ Zero Touch Cluster is a Kubernetes homelab automation project using k3s and Ansi
 
 ### Infrastructure Provisioning
 ```bash
-# MODERN WORKFLOW (Recommended):
-# 1. Interactive setup wizard (handles all secrets automatically)
+# STREAMLINED WORKFLOW (Recommended):
+# 1. Pre-cluster setup (creates infrastructure secrets only)
 make setup
 
 # 2. Create autoinstall USB drives for each node
 make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-master IP_OCTET=10
 make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-worker-01 IP_OCTET=11
 
-# 3. Deploy complete infrastructure after nodes boot
+# 3. Deploy complete infrastructure (cluster + sealed secrets + applications)
 make infra
 
 # 4. Create encrypted backup of all secrets
@@ -119,6 +119,27 @@ make validate      # Validate Kubernetes manifests
 make ping          # Test Ansible connectivity to all nodes
 ```
 
+### Development Workflow
+
+```bash
+# Complete cluster teardown for development iteration
+make teardown      # ⚠️  DESTRUCTIVE: Removes everything for fresh start
+
+# Development cycle
+make teardown      # Clean slate
+make setup         # New secrets and configuration  
+make infra         # Deploy fresh cluster
+make status        # Verify deployment
+```
+
+**When to use teardown:**
+- Testing configuration changes
+- Recovering from broken cluster state  
+- Starting fresh after experiments
+- Development iteration
+
+**⚠️ Never use on production clusters with valuable data**
+
 ### Node Management
 ```bash
 # Gracefully remove node
@@ -172,19 +193,19 @@ make uncordon-node NODE=<node-name>     # Uncordon node after maintenance
 - **Interactive Setup**: `make setup` wizard handles all secrets automatically
 - **Encrypted Storage**: All secrets encrypted (Ansible Vault + Sealed Secrets)
 - **Automated Backup**: `make backup-secrets` creates encrypted recovery archive
-- **Pre-commit Protection**: Automatic prevention of plaintext secret commits
+- **Git Protection**: Careful handling to prevent accidental secret commits
 - **No Manual Editing**: Zero exposure to plaintext secrets during setup
 
 ### Secret Types & Encryption:
 - **Infrastructure secrets**: `ansible/inventory/secrets.yml` (ansible-vault encrypted)
 - **Kubernetes secrets**: Sealed Secrets (encrypted manifests safe to commit)
 - **Recovery**: Single encrypted backup file contains all crown jewels
-- **Pre-commit hooks**: detect-secrets prevents accidental secret exposure
+- **Git safeguards**: Careful workflows to prevent accidental secret exposure
 
 ### Key Security Features:
 - ✅ **Zero plaintext secrets** on disk outside of memory
 - ✅ **Automated secret generation** with strong defaults
-- ✅ **Git commit protection** via pre-commit hooks
+- ✅ **Git workflow protection** via careful secret handling
 - ✅ **One-command backup/recovery** for disaster scenarios
 - ✅ **Production-ready encryption** using industry standard tools
 
@@ -244,7 +265,7 @@ git push origin main
 
 ### Integration with ArgoCD:
 ```yaml
-# Example ArgoCD Application pointing to Gitea
+# Example ArgoCD Application pointing to Gitea (per-workload repository)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -252,12 +273,12 @@ metadata:
   namespace: argocd
 spec:
   source:
-    repoURL: http://gitea-http.gitea.svc.cluster.local:3000/ztc-admin/workloads.git
+    repoURL: http://gitea-http.gitea.svc.cluster.local:3000/ztc-admin/my-private-app.git
     targetRevision: main
-    path: apps/my-app
+    path: .
   destination:
     server: https://kubernetes.default.svc
-    namespace: my-namespace
+    namespace: my-private-app
 ```
 
 ### Resource Usage:

@@ -38,7 +38,7 @@ kube-prometheus-stack:
       annotations:
         traefik.ingress.kubernetes.io/router.entrypoints: web
       hosts:
-        - grafana.homelab.local
+        - grafana.homelab.lan
     
     # Resource limits for homelab
     resources:

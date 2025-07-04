@@ -204,7 +204,7 @@ metadata:
 defaults:
   storage_size: "5Gi"
   storage_class: "local-path"
-  hostname: "n8n.homelab.local"
+  hostname: "n8n.homelab.lan"
   resources:
     requests:
       memory: "256Mi"
@@ -226,7 +226,7 @@ metadata:
 defaults:
   storage_size: "1Gi"
   storage_class: "local-path"
-  hostname: "status.homelab.local"
+  hostname: "status.homelab.lan"
   resources:
     requests:
       memory: "64Mi"
@@ -248,7 +248,7 @@ metadata:
 defaults:
   storage_size: "500Mi"
   storage_class: "local-path"
-  hostname: "home.homelab.local"
+  hostname: "home.homelab.lan"
   resources:
     requests:
       memory: "32Mi"
@@ -270,7 +270,7 @@ metadata:
 defaults:
   storage_size: "2Gi"
   storage_class: "nfs-client"  # Shared storage for family access
-  hostname: "vault.homelab.local"
+  hostname: "vault.homelab.lan"
   admin_token: "auto-generated"
   resources:
     requests:
@@ -293,7 +293,7 @@ metadata:
 defaults:
   storage_size: "10Gi"
   storage_class: "nfs-client"  # Persistent workspace across devices
-  hostname: "code.homelab.local"
+  hostname: "code.homelab.lan"
   password: "auto-generated"
   resources:
     requests:
@@ -324,7 +324,7 @@ make backup-workload n8n   # Backup workload data
 **3.3 Template Customization**
 ```bash
 # Override template defaults
-make deploy-n8n STORAGE_SIZE=10Gi HOSTNAME=automation.homelab.local
+make deploy-n8n STORAGE_SIZE=10Gi HOSTNAME=automation.homelab.lan
 ```
 
 ## User Experience Transformation
@@ -359,7 +359,7 @@ make deploy-code-server   # Development environment
 # 🔄 Waiting for deployment...
 # ✅ n8n deployed successfully!
 # 
-# 🌐 Access: http://n8n.homelab.local
+# 🌐 Access: http://n8n.homelab.lan
 # 📊 Status: kubectl get pods -n n8n
 
 # Complete homelab platform deployed in ~15 minutes!
@@ -514,7 +514,7 @@ make deploy-code-server   # Development environment
 
 **Acceptance Criteria**:
 - All templates deploy successfully on homelab hardware
-- Ingress and networking configured properly with .homelab.local domains
+- Ingress and networking configured properly with .homelab.lan domains
 - Persistent storage working correctly (local-path and nfs-client)
 - Resource limits optimized for mini PC environments
 - Auto-generated secrets and credentials working securely

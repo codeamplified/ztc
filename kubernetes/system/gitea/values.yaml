@@ -8,17 +8,17 @@ gitea:
   gitea:
     admin:
       username: "ztc-admin"
-      password: "changeme123"  # Default password (override with existingSecret after setup)
-      email: "admin@homelab.local"
-      # existingSecret: gitea-admin-secret  # Uncomment after running 'make setup'
+      # password: "changeme123"  # Moved to sealed secret
+      email: "admin@homelab.lan"
+      existingSecret: gitea-admin-secret  # Now using sealed secret
       
     config:
       server:
-        DOMAIN: "gitea.homelab.local"
+        DOMAIN: "gitea.homelab.lan"
         HTTP_PORT: 3000
-        ROOT_URL: "http://gitea.homelab.local"
+        ROOT_URL: "http://gitea.homelab.lan"
         DISABLE_SSH: false
-        SSH_DOMAIN: "gitea.homelab.local" 
+        SSH_DOMAIN: "gitea.homelab.lan" 
         SSH_PORT: 30022
         START_SSH_SERVER: false  # Use external SSH via NodePort
         LFS_START_SERVER: false  # Disable LFS to save resources
@@ -97,7 +97,7 @@ gitea:
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: web
     hosts:
-      - host: gitea.homelab.local
+      - host: gitea.homelab.lan
         paths:
           - path: /
             pathType: Prefix

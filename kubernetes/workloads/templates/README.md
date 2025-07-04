@@ -59,7 +59,7 @@ All templates are optimized for mini PC homelab environments:
 
 Override template defaults:
 ```bash
-make deploy-n8n STORAGE_SIZE=10Gi HOSTNAME=automation.homelab.local
+make deploy-n8n STORAGE_SIZE=10Gi HOSTNAME=automation.homelab.lan
 make deploy-n8n IMAGE_TAG=1.64.0  # Pin to specific version
 make deploy-vaultwarden MEMORY_LIMIT=256Mi IMAGE_TAG=1.31.0
 

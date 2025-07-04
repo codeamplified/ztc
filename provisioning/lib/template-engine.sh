@@ -330,7 +330,7 @@ usage() {
     echo "Environment variable overrides:"
     echo "  OVERRIDE_STORAGE_SIZE     Override storage size (e.g., '10Gi')"
     echo "  OVERRIDE_STORAGE_CLASS    Override storage class (e.g., 'nfs-client')"
-    echo "  OVERRIDE_HOSTNAME         Override hostname (e.g., 'my-app.homelab.local')"
+    echo "  OVERRIDE_HOSTNAME         Override hostname (e.g., 'my-app.homelab.lan')"
     echo "  OVERRIDE_MEMORY_REQUEST   Override memory request (e.g., '512Mi')"
     echo "  OVERRIDE_MEMORY_LIMIT     Override memory limit (e.g., '1Gi')"
     echo "  OVERRIDE_CPU_REQUEST      Override CPU request (e.g., '200m')"

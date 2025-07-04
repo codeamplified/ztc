@@ -67,17 +67,17 @@ cat > credentials.txt <<EOF
 ## Grafana (Monitoring)
 Username: admin
 Password: $GRAFANA_PASSWORD
-URL: http://grafana.homelab.local (after deployment)
+URL: http://grafana.homelab.lan (after deployment)
 
 ## Gitea (Git Server)  
 Username: ztc-admin
 Password: $GITEA_ADMIN_PASSWORD
-URL: http://gitea.homelab.local (after deployment)
+URL: http://gitea.homelab.lan (after deployment)
 
 ## ArgoCD (GitOps)
 Username: admin
 Password: (get with: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
-URL: http://argocd.homelab.local (after deployment)
+URL: http://argocd.homelab.lan (after deployment)
 
 IMPORTANT: 
 - Save these credentials securely

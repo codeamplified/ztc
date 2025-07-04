@@ -124,7 +124,7 @@ export ANSIBLE_VAULT_PASSWORD_FILE=~/.ansible_vault_pass
 ```bash
 # In kubernetes/system/*/values.yaml:
 # Change any hardcoded domains to your preferences
-# Example: grafana.homelab.local → grafana.yourname.local
+# Example: grafana.homelab.lan → grafana.yourname.lan
 ```
 
 ### Storage Configuration

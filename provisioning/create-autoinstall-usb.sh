@@ -387,43 +387,16 @@ write_cidata_to_usb() {
     echo
 }
 
-download_ubuntu_iso() {
-    local iso_path="${DOWNLOAD_DIR}/${UBUNTU_ISO_NAME}"
-    
-    if [[ -f "${iso_path}" ]]; then
-        log_info "Ubuntu ISO already exists: ${iso_path}"
-        return 0
-    fi
-    
-    log_info "Downloading Ubuntu Server ${UBUNTU_VERSION} ISO..."
-    mkdir -p "${DOWNLOAD_DIR}"
-    
-    local iso_url="${UBUNTU_ISO_URL}"
-    curl -L --progress-bar -o "${iso_path}" "${iso_url}"
-    
-    if [[ ! -f "${iso_path}" ]] || [[ ! -s "${iso_path}" ]]; then
-        log_error "Failed to download Ubuntu ISO"
-        exit 1
-    fi
-    
-    local file_size=$(du -h "${iso_path}" | cut -f1)
-    log_success "Downloaded Ubuntu ISO (${file_size})"
-}
-
-create_bootable_usb() {
+# Creates the main bootable USB and a separate cidata.iso for configuration
+create_installer_artifacts() {
     local usb_device="$1"
     local hostname="$2"
     local ip_octet="$3"
     local password="$4"
     local force_flag="$5"
-    local keep_mount="$6"
     
     local iso_path="${DOWNLOAD_DIR}/${UBUNTU_ISO_NAME}"
-    local temp_dir=$(mktemp -d)
-    
-    # Generate cloud-init config
-    generate_cloud_init_config "${hostname}" "${ip_octet}" "${temp_dir}" "${password}"
-    
+
     # Confirmation unless force flag is set
     if [[ "${force_flag}" != true ]]; then
         echo
@@ -434,96 +407,28 @@ create_bootable_usb() {
         echo
         if ! confirm_action; then
             log_info "Operation cancelled"
-            rm -rf "${temp_dir}"
             exit 0
         fi
     fi
     
-    log_info "Creating autoinstall USB for ${hostname} (${DEFAULT_SUBNET}.${ip_octet})..."
+    log_info "Creating installer artifacts for ${hostname} (${DEFAULT_SUBNET}.${ip_octet})..."
     
-    # Unmount any mounted partitions
+    # Unmount and Write the Main Ubuntu ISO
+    log_info "Unmounting USB device..."
     if [[ "$OSTYPE" == "darwin"* ]]; then
         diskutil unmountDisk "${usb_device}" 2>/dev/null || true
     else
         umount "${usb_device}"* 2>/dev/null || true
     fi
     
-    # Write Ubuntu ISO to USB
-    log_info "Writing Ubuntu ISO to USB (this takes 3-5 minutes)..."
+    log_info "Writing Ubuntu ISO to ${usb_device} (this can take several minutes)..."
     dd if="${iso_path}" of="${usb_device}" bs=4M status=progress oflag=sync
     sync
     
-    # Wait for device to be ready
-    sleep 2
-    
-    # Mount USB and copy autoinstall.yaml directly (Ubuntu recommended for physical hardware)
-    log_info "Mounting USB to copy autoinstall configuration..."
-    
-    # Wait for device to be ready and try mounting
-    sleep 3
-    local mount_point
-    local mounted=false
-    
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS approach
-        diskutil mount "${usb_device}s1" >/dev/null 2>&1 || diskutil mount "${usb_device}1" >/dev/null 2>&1 || true
-        mount_point=$(ls -d /Volumes/Ubuntu* 2>/dev/null | head -1)
-        [[ -n "${mount_point}" ]] && [[ -d "${mount_point}" ]] && mounted=true
-    else
-        # Linux approach - try multiple partition schemes
-        mount_point="/tmp/autoinstall-usb-$$"
-        mkdir -p "${mount_point}"
-        
-        # Try different partition naming schemes
-        for partition in "${usb_device}1" "${usb_device}p1" "${usb_device}"; do
-            if mount "${partition}" "${mount_point}" 2>/dev/null; then
-                mounted=true
-                log_info "Successfully mounted ${partition}"
-                break
-            fi
-        done
-    fi
-    
-    # Ubuntu live USB is ISO9660 (read-only) - create separate cloud-init ISO
-    log_info "Creating separate cloud-init ISO (Ubuntu live USB is read-only)..."
-    
-    if command -v genisoimage >/dev/null 2>&1; then
-        # Create cloud-init ISO using genisoimage (canonical method)
-        local cidata_iso="${DOWNLOAD_DIR}/${hostname}-cidata.iso"
-        
-        genisoimage -output "${cidata_iso}" -volid cidata -joliet -rock \
-            "${temp_dir}/user-data" "${temp_dir}/meta-data"
-        
-        if [[ -f "${cidata_iso}" ]]; then
-            log_success "Created cloud-init ISO: ${cidata_iso}"
-            log_info "File size: $(du -h "${cidata_iso}" | cut -f1)"
-        else
-            log_error "Failed to create cloud-init ISO"
-        fi
-    else
-        log_warning "Could not mount USB partition - trying alternative approach"
-        
-        # Fallback: Create separate cloud-init ISO for dual-USB approach
-        log_info "Creating separate cloud-init ISO as fallback..."
-        local cidata_iso="${temp_dir}/cidata.iso"
-        
-        if command -v cloud-localds >/dev/null 2>&1; then
-            cloud-localds "${cidata_iso}" "${temp_dir}/user-data" "${temp_dir}/meta-data"
-            # Copy to permanent location
-            local permanent_cidata="${DOWNLOAD_DIR}/${hostname}-cidata.iso"
-            cp "${cidata_iso}" "${permanent_cidata}"
-            log_warning "Created fallback cloud-init ISO: ${permanent_cidata}"
-            echo "${permanent_cidata}" > "${temp_dir}/cidata_path"
-        else
-            log_error "Could not mount USB and cloud-localds not available"
-            log_error "Manual intervention required"
-        fi
-    fi
-    
-    # Cleanup temp directory
-    rm -rf "${temp_dir}"
-    
-    log_success "Autoinstall USB created successfully!"
+    # Create the Separate Configuration ISO
+    create_cloud_init_iso "${hostname}" "${ip_octet}" "${password}"
+
+    log_success "Installer artifacts created successfully!"
 }
 
 show_completion_info() {
@@ -717,8 +622,9 @@ main() {
         write_cidata_to_usb "${hostname}" "${ip_octet}" "${cidata_usb_device}" "${password}" "${force_flag}"
     else
         # Full USB creation process
-        download_ubuntu_iso
-        create_bootable_usb "${usb_device}" "${hostname}" "${ip_octet}" "${password}" "${force_flag}" "${keep_mount_flag}"
+        log_info "Ensuring Ubuntu ISO is downloaded and verified..."
+        "$(dirname "${BASH_SOURCE[0]}")/download-iso.sh"
+        create_installer_artifacts "${usb_device}" "${hostname}" "${ip_octet}" "${password}" "${force_flag}"
         show_completion_info "${hostname}" "${ip_octet}" "${usb_device}"
     fi
 }

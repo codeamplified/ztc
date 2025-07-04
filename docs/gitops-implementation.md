@@ -137,7 +137,7 @@ make gitops-status
 
 # Access ArgoCD UI
 kubectl port-forward svc/argocd-server -n argocd 8080:80
-# Or via ingress: http://argocd.homelab.local
+# Or via ingress: http://argocd.homelab.lan
 ```
 
 ## Next Steps

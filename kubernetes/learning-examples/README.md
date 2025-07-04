@@ -38,7 +38,7 @@ make deploy-homepage       # Service dashboard
 - Pod networking and DNS resolution
 
 **Access:**
-- **Ingress:** `http://hello.homelab.local` (requires DNS setup)
+- **Ingress:** `http://hello.homelab.lan` (requires DNS setup)
 - **Port Forward:** `kubectl port-forward -n hello-world svc/hello-world 8081:80`
 
 **What it teaches:**

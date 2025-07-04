@@ -13,8 +13,7 @@ autoinstall:
     variant: ""
     toggle: null
   
-  # Network configuration - Static IP for Zero Touch Cluster nodes  
-  # EXPERT FIX: Use intelligent name matching to prevent CNI race condition
+  # Network configuration - Static IP for Zero Touch Cluster nodes
   # This matches eno1, enp1s0, enp3s0 but NOT cni0, flannel.1, veth*
   network:
     version: 2
@@ -34,9 +33,9 @@ autoinstall:
             via: 192.168.50.1
         nameservers:
           addresses:
-            - 192.168.50.1
-            - 1.1.1.1
-            - 8.8.8.8
+            - 192.168.50.1    # Router (always available during install)
+            - 8.8.8.8         # External fallback
+            - 1.1.1.1         # Additional external fallback
   
   # Storage configuration - LVM layout for flexibility
   storage:
@@ -53,12 +52,12 @@ autoinstall:
     # Password: configurable - for emergency access only
     password: "__USER_PASSWORD_HASH__"
   
-  # SSH configuration - Key-only authentication
+  # SSH configuration - Key-only authentication for SSH, but allow console login
   ssh:
     install-server: true
     authorized-keys:
       - __SSH_PUBLIC_KEY__
-    allow-pw: false
+    allow-pw: false # Note: This only affects SSH. Console login is controlled separately.
   
   # Package installation - Essential tools for k8s nodes
   # Minimal package set - Ansible handles additional packages
@@ -91,10 +90,14 @@ autoinstall:
         content: |
           ubuntu ALL=(ALL) NOPASSWD:ALL
         permissions: '0440'
+      - path: /etc/modules-load.d/k8s.conf
+        content: |
+          overlay
+          br_netfilter
     runcmd:
-      - modprobe br_netfilter
-      - modprobe overlay
       - sysctl --system
+      # Enable console/tty login via PAM (different from SSH)
+      - sed -i '/pam_unix.so/s/nullok_secure/nullok/' /etc/pam.d/login
       # EXPERT DIAGNOSTIC: Test internet connectivity before system declares ready
       - ['ping', '-c', '4', '8.8.8.8']
       - echo "System ready for Ansible provisioning" >> /var/log/cloud-init-complete.log

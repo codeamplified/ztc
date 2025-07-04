@@ -1,0 +1,26 @@
+---
+# DNS Server role default variables
+
+# DNS domain for homelab services
+dns_domain: "homelab.lan"
+
+# Upstream DNS servers
+upstream_dns_servers:
+  - "192.168.50.1"  # Router/gateway
+  - "8.8.8.8"       # Google DNS fallback
+  - "1.1.1.1"       # Cloudflare DNS fallback
+
+# dnsmasq configuration
+dnsmasq_interface: "{{ ansible_default_ipv4.interface }}"
+dnsmasq_listen_address: "{{ ansible_default_ipv4.address }}"
+dnsmasq_cache_size: 1000
+dnsmasq_log_queries: false
+
+# Monitoring and health check settings
+dns_health_check_enabled: true
+dns_metrics_enabled: true
+
+# Service configuration
+dnsmasq_service_name: "dnsmasq"
+dnsmasq_config_path: "/etc/dnsmasq.conf"
+dnsmasq_config_backup: "/etc/dnsmasq.conf.backup"

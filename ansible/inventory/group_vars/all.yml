@@ -2,7 +2,7 @@
 
 # Network Configuration  
 homelab_subnet: "192.168.50.0/24"
-homelab_dns: "192.168.50.1"  
+homelab_dns: "192.168.50.20"  # DNS server runs on storage node
 homelab_gateway: "192.168.50.1"  # Router/gateway IP (actual TP-Link Omada router)
 
 # SSH Configuration
@@ -66,4 +66,16 @@ auto_update_packages: true
 reboot_after_update: false
 
 # Logging
-log_level: "info" 
+log_level: "info"
+
+# DNS Server Configuration (Phase 1 - ADR-005)
+dns_domain: "homelab.lan"  # Non-reserved TLD to avoid mDNS conflicts
+dns_server_ip: "{{ homelab_dns }}"
+upstream_dns_servers:
+  - "{{ homelab_gateway }}"  # Router as primary upstream
+  - "8.8.8.8"                # Google DNS fallback
+  - "1.1.1.1"                # Cloudflare DNS fallback
+
+# DNS monitoring and health checks
+dns_health_check_enabled: true
+dns_metrics_enabled: true  # For Prometheus integration

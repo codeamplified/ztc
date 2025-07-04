@@ -238,16 +238,16 @@ make gitea-admin-password
 # Output: Username: ztc-admin, Password: <generated-secure-password>
 
 # Access Gitea web UI
-# http://gitea.homelab.local
+# http://gitea.homelab.lan
 ```
 
 ### Git Operations:
 ```bash
 # Clone via HTTPS
-git clone http://gitea.homelab.local/ztc-admin/my-workloads.git
+git clone http://gitea.homelab.lan/ztc-admin/my-workloads.git
 
 # Clone via SSH (after adding SSH keys to Gitea)
-git clone git@gitea.homelab.local:30022/ztc-admin/my-workloads.git
+git clone git@gitea.homelab.lan:30022/ztc-admin/my-workloads.git
 
 # Standard Git workflow
 cd my-workloads
@@ -258,28 +258,10 @@ git push origin main
 
 ### Private Workload Workflow:
 1. **Create Repository**: Use Gitea web UI to create new repository
-2. **Clone Locally**: `git clone http://gitea.homelab.local/user/repo.git`
+2. **Clone Locally**: `git clone http://gitea.homelab.lan/user/repo.git`
 3. **Add Kubernetes Manifests**: Create your application YAML files
 4. **Configure ArgoCD**: Update ArgoCD Application to point to your Gitea repo
 5. **Deploy**: ArgoCD automatically syncs and deploys your applications
-
-### Integration with ArgoCD:
-```yaml
-# Example ArgoCD Application pointing to Gitea (per-workload repository)
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: my-private-app
-  namespace: argocd
-spec:
-  source:
-    repoURL: http://gitea-http.gitea.svc.cluster.local:3000/ztc-admin/my-private-app.git
-    targetRevision: main
-    path: .
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: my-private-app
-```
 
 ### Resource Usage:
 - **Gitea**: ~200MB RAM, minimal CPU (homelab-optimized)
@@ -304,11 +286,36 @@ kubectl describe pod -n gitea -l app=gitea
 # Reset admin credentials (if needed)
 kubectl delete secret -n gitea gitea-admin-secret
 make setup  # Regenerate credentials
-
-# Access with default credentials if setup fails
-# Username: ztc-admin, Password: changeme123
-# Change immediately after first login
 ```
+
+### Common Issues and Solutions:
+
+**1. Workload Deployment Fails with "Cannot retrieve Gitea admin password"**
+```bash
+# Check if sealed secret exists and has both username and password
+kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data}' | jq
+# Should show both "username" and "password" keys
+
+# If missing, apply the sealed secret:
+kubectl apply -f kubernetes/system/gitea/values-secret.yaml
+```
+
+**2. ArgoCD Applications Show "no such host" for gitea.homelab.lan**
+```bash
+# Check if ArgoCD repository credentials are configured
+kubectl get secret -n argocd gitea-repo-credentials
+
+# If missing, apply repository credentials for internal access:
+kubectl apply -f kubernetes/system/argocd/config/gitea-repository-credentials.yaml
+```
+
+**3. Web UI Login Issues**
+- **Username**: `ztc-admin`
+- **Password**: Retrieved from sealed secret:
+  ```bash
+  kubectl get secret -n gitea gitea-admin-secret -o jsonpath="{.data.password}" | base64 -d
+  ```
+- If using default setup: `changeme123` (should be changed to sealed secret)
 
 ### Installation Notes:
 - **First-time deployment**: Use default credentials, then run `make setup` for secure credentials
@@ -364,7 +371,7 @@ Each template automatically:
 ```bash
 # Override template defaults with user-friendly syntax
 make deploy-n8n STORAGE_SIZE=10Gi
-make deploy-n8n HOSTNAME=automation.homelab.local  
+make deploy-n8n HOSTNAME=automation.homelab.lan  
 make deploy-code-server MEMORY_LIMIT=1Gi STORAGE_CLASS=local-path
 
 # Image version pinning for stability
@@ -372,7 +379,7 @@ make deploy-n8n IMAGE_TAG=1.64.0        # Use specific n8n version
 make deploy-vaultwarden IMAGE_TAG=1.31.0 # Use specific Vaultwarden version
 
 # Multiple overrides
-make deploy-vaultwarden STORAGE_SIZE=5Gi HOSTNAME=passwords.homelab.local IMAGE_TAG=1.31.0
+make deploy-vaultwarden STORAGE_SIZE=5Gi HOSTNAME=passwords.homelab.lan IMAGE_TAG=1.31.0
 
 # Available override options:
 # STORAGE_SIZE, STORAGE_CLASS, HOSTNAME, IMAGE_TAG
@@ -389,11 +396,11 @@ kubectl get applications -n argocd -l app.kubernetes.io/part-of=ztc-workloads
 kubectl get pods,svc,ingress -n n8n
 
 # Access workload URLs (example hostnames)
-curl http://n8n.homelab.local
-curl http://status.homelab.local
-curl http://home.homelab.local
-curl http://vault.homelab.local
-curl http://code.homelab.local
+curl http://n8n.homelab.lan
+curl http://status.homelab.lan
+curl http://home.homelab.lan
+curl http://vault.homelab.lan
+curl http://code.homelab.lan
 
 # Remove workload (manual cleanup required)
 kubectl delete application workload-n8n -n argocd
@@ -421,7 +428,7 @@ make deploy-n8n
 # ✅ ArgoCD application created
 # 🔄 Waiting for deployment...
 # ✅ n8n deployed successfully!
-# 🌐 Access: http://n8n.homelab.local
+# 🌐 Access: http://n8n.homelab.lan
 ```
 
 ### Learning Examples vs Production Templates

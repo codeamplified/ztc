@@ -17,7 +17,7 @@ ZTC_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TEMPLATE_ENGINE="$SCRIPT_DIR/template-engine.sh"
 
 # Configuration (can be overridden via environment variables)
-GITEA_URL="${GITEA_URL:-http://gitea.homelab.local}"
+GITEA_URL="${GITEA_URL:-http://gitea.homelab.lan}"
 GITEA_USER="${GITEA_USER:-ztc-admin}"
 WORKLOADS_REPO="${WORKLOADS_REPO:-workloads}"
 TEMP_DIR="/tmp/ztc-workload-deploy-$$"
@@ -140,7 +140,7 @@ setup_repository() {
     
     # Configure Git if needed
     if ! git config user.email >/dev/null 2>&1; then
-        git config user.email "ztc-admin@homelab.local"
+        git config user.email "ztc-admin@homelab.lan"
         git config user.name "ZTC Admin"
     fi
     
@@ -186,7 +186,7 @@ This application was deployed using ZTC workload templates.
 
 ## Access
 
-- **URL**: http://\$(hostname).homelab.local
+- **URL**: http://\$(hostname).homelab.lan
 - **Namespace**: \$(namespace)
 
 ## Management

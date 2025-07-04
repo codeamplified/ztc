@@ -7,7 +7,7 @@ metadata:
 defaults:
   storage_size: "2Gi"
   storage_class: "nfs-client"  # Shared storage for family access
-  hostname: "vault.homelab.local"
+  hostname: "vault.homelab.lan"
   image_tag: "1.32.0"  # Pinned version for stability
   admin_token: "auto-generated"
   resources:

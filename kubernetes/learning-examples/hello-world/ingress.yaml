@@ -12,7 +12,7 @@ metadata:
     traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:
   rules:
-  - host: hello.homelab.local
+  - host: hello.homelab.lan
     http:
       paths:
       - path: /
@@ -22,7 +22,7 @@ spec:
             name: hello-world
             port:
               number: 80
-  - host: hello.k3s.local  # Alternative hostname
+  - host: hello.k3s.lan  # Alternative hostname
     http:
       paths:
       - path: /

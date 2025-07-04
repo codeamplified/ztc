@@ -7,7 +7,7 @@ metadata:
 defaults:
   storage_size: "5Gi"
   storage_class: "local-path"
-  hostname: "n8n.homelab.local"
+  hostname: "n8n.homelab.lan"
   image_tag: "1.65.1"  # Pinned version for stability
   resources:
     requests:

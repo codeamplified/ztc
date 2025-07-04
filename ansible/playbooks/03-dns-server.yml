@@ -1,0 +1,76 @@
+---
+# DNS Server Setup Playbook for ZTC
+# Deploys dnsmasq DNS server on the storage node for homelab service resolution
+
+- name: Deploy DNS Server for Homelab Services
+  hosts: k8s_storage
+  become: true
+  gather_facts: true
+  
+  pre_tasks:
+    - name: Display deployment information
+      debug:
+        msg: |
+          Deploying DNS server on {{ inventory_hostname }}
+          Target IP: {{ ansible_host }}
+          DNS Domain: {{ dns_domain | default('homelab.lan') }}
+          
+    - name: Verify we're targeting the storage node
+      assert:
+        that:
+          - inventory_hostname in groups['k8s_storage']
+          - ansible_host == k8s_storage_ip
+        fail_msg: "This playbook should only run on the k8s_storage node"
+        success_msg: "✅ Confirmed targeting storage node {{ inventory_hostname }}"
+
+    - name: Check kubectl availability for Traefik IP detection
+      shell: which kubectl
+      register: kubectl_check
+      failed_when: false
+      changed_when: false
+      delegate_to: localhost
+      become: false
+
+    - name: Display kubectl availability
+      debug:
+        msg: |
+          {% if kubectl_check.rc == 0 %}
+          ✅ kubectl available - will auto-detect Traefik IP
+          {% else %}
+          ⚠️  kubectl not available - will use fallback IP (192.168.50.10)
+          {% endif %}
+
+  roles:
+    - role: dns-server
+      tags: 
+        - dns
+        - dns-server
+
+  post_tasks:
+    - name: Display completion information
+      debug:
+        msg: |
+          🎉 DNS server deployment completed successfully!
+          
+          DNS Server Details:
+          - Server IP: {{ ansible_host }}
+          - Domain: {{ dns_domain | default('homelab.lan') }}
+          - Traefik IP: {{ traefik_ingress_ip | default('192.168.50.10') }}
+          
+          Next Steps:
+          1. Configure your router to use {{ ansible_host }} as DNS server
+          2. Test DNS resolution: nslookup test.{{ dns_domain | default('homelab.lan') }} {{ ansible_host }}
+          3. Verify services: http://gitea.{{ dns_domain | default('homelab.lan') }}
+          
+          Health Check:
+          - Run: ssh ubuntu@{{ ansible_host }} 'sudo /usr/local/bin/dns-health-check.sh'
+
+    - name: Run DNS health check
+      shell: /usr/local/bin/dns-health-check.sh
+      register: health_check_result
+      failed_when: false
+      changed_when: false
+
+    - name: Display health check results
+      debug:
+        var: health_check_result.stdout_lines

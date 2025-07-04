@@ -1,6 +1,6 @@
 # Zero Touch Cluster Makefile
 
-.PHONY: help setup check infra storage cluster copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack deploy-storage deploy-nfs enable-nfs disable-nfs argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs
+.PHONY: help setup check infra storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack deploy-storage deploy-nfs enable-nfs disable-nfs argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs
 
 # Default target
 .DEFAULT_GOAL := help
@@ -89,11 +89,31 @@ cluster: check ## Setup k3s cluster
 	@echo "$(CYAN)Deploying k3s cluster...$(RESET)"
 	cd ansible && ansible-playbook playbooks/02-k3s-cluster.yml
 
-infra: storage cluster copy-kubeconfig install-sealed-secrets post-cluster-setup system-components argocd ## Setup complete infrastructure with GitOps
+deploy-dns: check ## Deploy DNS server for homelab services
+	@echo "$(CYAN)Deploying DNS server on storage node...$(RESET)"
+	cd ansible && ansible-playbook playbooks/03-dns-server.yml
+	@echo "$(GREEN)✅ DNS server deployed$(RESET)"
+	@echo "$(YELLOW)📋 Configure your router to use 192.168.50.20 as DNS server$(RESET)"
+
+dns-status: ## Check DNS server status and health
+	@echo "$(CYAN)Checking DNS server status...$(RESET)"
+	@if ssh -o ConnectTimeout=5 ubuntu@192.168.50.20 'systemctl is-active --quiet dnsmasq' 2>/dev/null; then \
+		echo "$(GREEN)✅ DNS service is running$(RESET)"; \
+		echo "$(CYAN)Running health check...$(RESET)"; \
+		ssh ubuntu@192.168.50.20 'sudo /usr/local/bin/dns-health-check.sh' || echo "$(YELLOW)⚠️  Health check script not found$(RESET)"; \
+	else \
+		echo "$(RED)❌ DNS service is not running or storage node unreachable$(RESET)"; \
+	fi
+
+infra: storage cluster copy-kubeconfig install-sealed-secrets post-cluster-setup deploy-dns system-components argocd ## Setup complete infrastructure with GitOps
 	@echo "$(GREEN)✅ Complete Zero Touch Cluster infrastructure deployed!$(RESET)"
 	@echo "$(CYAN)Check credentials in credentials.txt file$(RESET)"
 	@echo "$(CYAN)Access ArgoCD UI: kubectl port-forward svc/argocd-server -n argocd 8080:80$(RESET)"
-	@echo "$(CYAN)ArgoCD URL: http://argocd.homelab.local (after DNS setup)$(RESET)"
+	@echo "$(CYAN)ArgoCD URL: http://argocd.homelab.lan (after DNS setup)$(RESET)"
+	@echo "$(YELLOW)📋 Next Steps:$(RESET)"
+	@echo "  1. Configure your router to use 192.168.50.20 as DNS server"
+	@echo "  2. Test: curl http://argocd.homelab.lan"
+	@echo "  3. Documentation: see docs/dns-setup.md"
 
 ##@ System Components (Helm Charts)
 
@@ -138,8 +158,8 @@ gitea-stack: ## Deploy Gitea Git server for private workloads
 		--values ./kubernetes/system/gitea/values.yaml \
 		--wait --timeout 15m
 	@echo "$(GREEN)✅ Gitea Git server deployed$(RESET)"
-	@echo "$(CYAN)Access Gitea UI: http://gitea.homelab.local$(RESET)"
-	@echo "$(CYAN)SSH clone: git clone git@gitea.homelab.local:30022/user/repo.git$(RESET)"
+	@echo "$(CYAN)Access Gitea UI: http://gitea.homelab.lan$(RESET)"
+	@echo "$(CYAN)SSH clone: git clone git@gitea.homelab.lan:30022/user/repo.git$(RESET)"
 	@echo "$(YELLOW)Default admin: ztc-admin / changeme123 (change after first login)$(RESET)"
 
 ##@ Kubernetes (Legacy/Direct)
@@ -206,7 +226,7 @@ gitea-admin-password: ## Get Gitea admin password
 	@echo -n "Password: "
 	@kubectl get secret -n gitea gitea-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "$(RED)❌ Gitea not deployed or secret not found$(RESET)"
 	@echo ""
-	@echo "$(CYAN)Access: http://gitea.homelab.local$(RESET)"
+	@echo "$(CYAN)Access: http://gitea.homelab.lan$(RESET)"
 
 ##@ Private Workloads
 
@@ -472,6 +492,8 @@ help: ## Display this help
 	@echo "Infrastructure:"
 	@echo "  storage               Setup K8s storage server"
 	@echo "  cluster               Setup k3s cluster"
+	@echo "  deploy-dns            Deploy DNS server for homelab services"
+	@echo "  dns-status            Check DNS server status and health"
 	@echo "  copy-kubeconfig       Copy kubeconfig from master to local kubectl"
 	@echo "  post-cluster-setup    Create application sealed secrets"
 	@echo "  infra                 Setup complete infrastructure with GitOps (recommended)"
@@ -492,7 +514,7 @@ help: ## Display this help
 	@echo "  workload-status         Check specific workload status"
 	@echo ""
 	@echo "Workload Customization:"
-	@echo "  make deploy-n8n STORAGE_SIZE=10Gi HOSTNAME=automation.homelab.local"
+	@echo "  make deploy-n8n STORAGE_SIZE=10Gi HOSTNAME=n8n.homelab.lan"
 	@echo "  make deploy-vaultwarden MEMORY_LIMIT=256Mi IMAGE_TAG=1.31.0"
 	@echo "  Available overrides: STORAGE_SIZE, STORAGE_CLASS, HOSTNAME, IMAGE_TAG,"
 	@echo "                      MEMORY_REQUEST, MEMORY_LIMIT, CPU_REQUEST, CPU_LIMIT"

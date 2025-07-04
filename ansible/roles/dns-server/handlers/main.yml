@@ -1,0 +1,16 @@
+---
+# DNS Server role handlers
+
+- name: restart dnsmasq
+  systemd:
+    name: "{{ dnsmasq_service_name }}"
+    state: restarted
+    daemon_reload: true
+  become: true
+
+- name: restart systemd-resolved
+  systemd:
+    name: systemd-resolved
+    state: restarted
+  become: true
+  when: ansible_service_mgr == "systemd"

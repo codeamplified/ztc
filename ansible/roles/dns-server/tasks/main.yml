@@ -1,0 +1,156 @@
+---
+# DNS Server configuration tasks for homelab services
+
+- name: Pre-flight validation - Check domain conflicts
+  shell: |
+    # Check if domain already exists in /etc/hosts
+    if grep -q "{{ dns_domain }}" /etc/hosts; then
+      echo "CONFLICT: {{ dns_domain }} found in /etc/hosts"
+      exit 1
+    fi
+    
+    # Check if domain resolves to external address
+    if nslookup "test.{{ dns_domain }}" >/dev/null 2>&1; then
+      echo "CONFLICT: {{ dns_domain }} resolves externally"
+      exit 1
+    fi
+    
+    echo "OK: No domain conflicts detected"
+  register: domain_check
+  failed_when: domain_check.rc != 0
+  changed_when: false
+  become: true
+
+- name: Display domain validation result
+  debug:
+    msg: "{{ domain_check.stdout }}"
+
+- name: Install dnsmasq package
+  apt:
+    name: dnsmasq
+    state: present
+    update_cache: true
+  become: true
+
+- name: Stop dnsmasq service before configuration
+  systemd:
+    name: "{{ dnsmasq_service_name }}"
+    state: stopped
+  become: true
+
+- name: Backup original dnsmasq configuration
+  copy:
+    src: "{{ dnsmasq_config_path }}"
+    dest: "{{ dnsmasq_config_backup }}"
+    remote_src: true
+    backup: true
+  become: true
+  when: not ansible_check_mode
+
+- name: Get Traefik ingress controller IP from cluster
+  shell: |
+    # Try to get the external IP of Traefik service
+    TRAEFIK_IP=$(kubectl get svc -n kube-system traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+    
+    # If LoadBalancer IP not available, get the node IP where Traefik is running
+    if [ -z "$TRAEFIK_IP" ] || [ "$TRAEFIK_IP" = "null" ]; then
+      # Get node IP of the master node (where Traefik typically runs)
+      TRAEFIK_IP=$(kubectl get nodes -l node-role.kubernetes.io/master -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null)
+    fi
+    
+    # Fallback to k3s-master IP if kubectl is not available
+    if [ -z "$TRAEFIK_IP" ] || [ "$TRAEFIK_IP" = "null" ]; then
+      TRAEFIK_IP="192.168.50.10"
+    fi
+    
+    echo "$TRAEFIK_IP"
+  register: traefik_ip_result
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Set Traefik ingress IP fact
+  set_fact:
+    traefik_ingress_ip: "{{ traefik_ip_result.stdout.strip() }}"
+
+- name: Display detected Traefik ingress IP
+  debug:
+    msg: "Traefik ingress controller IP: {{ traefik_ingress_ip }}"
+
+- name: Generate dnsmasq configuration
+  template:
+    src: dnsmasq.conf.j2
+    dest: "{{ dnsmasq_config_path }}"
+    backup: true
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify: restart dnsmasq
+
+- name: Configure firewall for DNS traffic
+  ufw:
+    rule: allow
+    port: '53'
+    proto: "{{ item }}"
+    comment: "DNS server - dnsmasq"
+  loop:
+    - tcp
+    - udp
+  become: true
+  when: enable_firewall | default(false)
+
+- name: Start and enable dnsmasq service
+  systemd:
+    name: "{{ dnsmasq_service_name }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+
+- name: Wait for dnsmasq to be ready
+  wait_for:
+    port: 53
+    host: "{{ dnsmasq_listen_address }}"
+    delay: 2
+    timeout: 30
+  become: true
+
+- name: Test DNS resolution
+  shell: |
+    # Test wildcard DNS resolution
+    nslookup "test.{{ dns_domain }}" "{{ dnsmasq_listen_address }}"
+  register: dns_test
+  changed_when: false
+  become: true
+
+- name: Display DNS test result
+  debug:
+    msg: |
+      DNS test successful!
+      Query: test.{{ dns_domain }}
+      Server: {{ dnsmasq_listen_address }}
+      Result: {{ dns_test.stdout }}
+
+- name: Create DNS health check script
+  template:
+    src: dns-health-check.sh.j2
+    dest: /usr/local/bin/dns-health-check.sh
+    mode: '0755'
+    owner: root
+    group: root
+  become: true
+  when: dns_health_check_enabled
+
+- name: Add DNS server to system resolver for testing
+  blockinfile:
+    path: /etc/systemd/resolved.conf
+    block: |
+      # ZTC DNS Server for homelab services
+      DNS={{ dnsmasq_listen_address }}
+      Domains=~{{ dns_domain }}
+    marker: "# {mark} ZTC DNS CONFIGURATION"
+    backup: true
+  become: true
+  notify: restart systemd-resolved
+  when: ansible_service_mgr == "systemd"

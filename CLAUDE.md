@@ -481,33 +481,185 @@ kubectl describe pod <pod-name> -n <namespace>
 
 ## Storage Strategy
 
+**THREE-TIER STORAGE ARCHITECTURE**: Zero Touch Cluster supports local-path, NFS, and Longhorn storage to meet diverse homelab requirements.
+
 ### When to Use Each Storage Class
 
-**local-path (default)**
+**local-path (always available)**
+- Built into k3s, zero configuration overhead
 - System monitoring (Prometheus, Grafana, AlertManager)  
 - Logs and temporary data
-- Single-pod applications requiring fast I/O
+- Single-pod applications requiring fastest I/O
 - Any workload that doesn't need to be shared across nodes
 
-**nfs-client (enabled by default)**
+**nfs-client (configurable, enabled by default)**
+- Simple shared storage solution for small clusters (2-4 nodes)
 - Multi-pod applications requiring shared storage
-- Databases that need persistent, shared volumes  
-- File sharing applications
-- Backup storage
-- Any data that should survive pod restarts across different nodes
+- File sharing applications and backup storage
+- Good for homelab users who want shared storage without complexity
+
+**longhorn (configurable, disabled by default)**
+- **Production-grade distributed storage** for larger clusters (6+ nodes)
+- **High availability** with automatic replication across nodes
+- **Advanced features**: snapshots, backups, encryption, web UI
+- **Fault tolerance** - survives node failures without data loss
+- **Critical databases** and applications requiring enterprise storage
+
+### Storage Selection Guide
+
+**Choose your storage architecture based on cluster scale and requirements:**
+
+#### Learning/Development (1-2 nodes)
+```bash
+# Use only local-path (default)
+# No additional configuration needed
+```
+
+#### Small Homelab (2-4 nodes)  
+```bash
+# Use local-path + NFS (default configuration)
+# NFS provides shared storage, local-path for performance
+```
+
+#### Production Homelab (6+ nodes)
+```bash
+# Use local-path + Longhorn (recommended)
+make enable-longhorn     # Enable in configuration
+make longhorn-stack      # Deploy Longhorn
+```
+
+#### Advanced/Testing (Any size)
+```bash
+# Use all three storage classes
+# Workloads choose optimal storage per use case
+```
 
 ### Storage Commands
+
+**Basic Storage Management:**
 ```bash
 # View available storage classes
 kubectl get storageclass
 
-# NFS management (both storage classes enabled by default)
-make enable-nfs      # Re-enable NFS storage if disabled 
-make disable-nfs     # Disable NFS storage (keeps local-path)
+# NFS management
+make enable-nfs      # Enable NFS storage  
+make disable-nfs     # Disable NFS storage
+
+# Longhorn management
+make longhorn-stack     # Deploy Longhorn distributed storage
+make enable-longhorn    # Enable Longhorn in configuration  
+make disable-longhorn   # Disable Longhorn (destroys data!)
+make longhorn-status    # Check Longhorn deployment status
 
 # Storage verification
-make deploy-storage  # Verify storage setup
+make deploy-storage     # Deploy configured storage stack
 ```
+
+**Longhorn Specific Commands:**
+```bash
+# Access Longhorn UI
+kubectl port-forward -n longhorn-system svc/longhorn-frontend 8080:80
+# Then browse to http://localhost:8080
+
+# Check Longhorn pods
+kubectl get pods -n longhorn-system
+
+# View Longhorn volumes
+kubectl get pv | grep longhorn
+```
+
+### Storage Architecture Examples
+
+**Your 6+ Node Production Setup** (recommended):
+```yaml
+# ansible/inventory/group_vars/all.yml
+storage_type: "hybrid"
+nfs_enabled: false      # Disable NFS - not needed with Longhorn
+longhorn_enabled: true  # Enable Longhorn for production storage
+
+# Available storage classes:
+# - local-path (fast, local storage)
+# - longhorn (replicated, fault-tolerant storage)
+```
+
+**Template Usage with Storage Classes:**
+```bash
+# Use Longhorn for critical workloads
+make deploy-vaultwarden STORAGE_CLASS=longhorn
+make deploy-n8n STORAGE_CLASS=longhorn
+
+# Use local-path for high-performance workloads  
+make deploy-uptime-kuma STORAGE_CLASS=local-path
+
+# Let templates choose defaults (varies by service)
+make deploy-homepage    # Uses local-path by default
+```
+
+### Longhorn Prerequisites
+
+**Before deploying Longhorn, ensure all nodes have:**
+```bash
+# Install open-iscsi (required dependency)
+sudo apt update && sudo apt install -y open-iscsi
+
+# Enable and start iscsid
+sudo systemctl enable iscsid
+sudo systemctl start iscsid
+
+# Verify iscsi is working
+sudo systemctl status iscsid
+```
+
+**This is handled automatically by the Ansible playbooks when `longhorn_enabled: true`**
+
+### Storage Performance Comparison
+
+| Storage Class | Performance | Availability | Use Case |
+|---------------|-------------|--------------|----------|
+| **local-path** | 🚀 Fastest | ❌ Node-tied | Logs, cache, single-pod apps |
+| **nfs-client** | 🐌 Network-limited | ⚠️ Single point of failure | Shared files, small clusters |
+| **longhorn** | ⚡ Good | ✅ Highly available | Databases, critical data, production |
+
+### Migration Between Storage Classes
+
+**Moving from NFS to Longhorn:**
+```bash
+# 1. Deploy Longhorn
+make longhorn-stack
+
+# 2. Redeploy workloads with Longhorn storage
+make deploy-vaultwarden STORAGE_CLASS=longhorn
+make deploy-n8n STORAGE_CLASS=longhorn
+
+# 3. Migrate data manually if needed
+kubectl cp old-pod:/data new-pod:/data
+
+# 4. Disable NFS when migration complete
+make disable-nfs
+```
+
+### Storage Troubleshooting
+
+**Longhorn Issues:**
+```bash
+# Check node readiness
+kubectl get nodes -o wide
+
+# Check Longhorn manager logs  
+kubectl logs -n longhorn-system -l app=longhorn-manager
+
+# Verify CSI driver
+kubectl get csidriver
+
+# Check storage class
+kubectl describe storageclass longhorn
+```
+
+**Common Longhorn Problems:**
+- **Pods stuck attaching**: Check if `open-iscsi` is running on all nodes
+- **UI not accessible**: Verify Longhorn frontend service is running
+- **Slow performance**: Check network between nodes, consider replica count
+- **Volume stuck**: Check Longhorn manager logs for disk/node issues
 
 ## Important Notes
 

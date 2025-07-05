@@ -58,3 +58,36 @@ allowVolumeExpansion: {{ .allowVolumeExpansion }}
 reclaimPolicy: {{ .reclaimPolicy }}
 {{- end }}
 {{- end }}
+
+{{- if .Values.longhorn.enabled }}
+---
+# Longhorn Storage Class
+# Note: This is created separately from the Longhorn Helm chart to ensure proper integration
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: longhorn-storageclass
+  annotations:
+    storageclass.kubernetes.io/is-default-class: {{ .Values.longhorn.config.defaultStorageClass.isDefaultClass | quote }}
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+provisioner: driver.longhorn.io
+allowVolumeExpansion: {{ .Values.longhorn.config.defaultStorageClass.allowVolumeExpansion }}
+reclaimPolicy: {{ .Values.longhorn.config.defaultStorageClass.reclaimPolicy }}
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: {{ .Values.longhorn.config.defaultStorageClass.parameters.numberOfReplicas | quote }}
+  staleReplicaTimeout: {{ .Values.longhorn.config.defaultStorageClass.parameters.staleReplicaTimeout | quote }}
+  {{- if .Values.longhorn.config.defaultStorageClass.parameters.diskSelector }}
+  diskSelector: {{ .Values.longhorn.config.defaultStorageClass.parameters.diskSelector | quote }}
+  {{- end }}
+  {{- if .Values.longhorn.config.defaultStorageClass.parameters.nodeSelector }}
+  nodeSelector: {{ .Values.longhorn.config.defaultStorageClass.parameters.nodeSelector | quote }}
+  {{- end }}
+  {{- if .Values.longhorn.config.defaultStorageClass.parameters.recurringJobSelector }}
+  recurringJobSelector: {{ .Values.longhorn.config.defaultStorageClass.parameters.recurringJobSelector | quote }}
+  {{- end }}
+{{- end }}

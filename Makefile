@@ -1,6 +1,6 @@
 # Zero Touch Cluster Makefile
 
-.PHONY: help setup check infra storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack setup-gitea-repos deploy-storage deploy-nfs enable-nfs disable-nfs argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-homepage undeploy-vaultwarden undeploy-code-server
+.PHONY: help setup check infra storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack longhorn-stack setup-gitea-repos deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-homepage undeploy-vaultwarden undeploy-code-server
 
 # Default target
 .DEFAULT_GOAL := help
@@ -189,6 +189,42 @@ enable-nfs: ## Enable NFS storage (manual step)
 
 disable-nfs: ## Disable NFS storage (manual step)
 	@echo "$(YELLOW)To disable NFS, set 'nfs_enabled: false' in 'ansible/inventory/group_vars/all.yml' and re-run 'make infra'$(RESET)"
+
+longhorn-stack: ## Deploy Longhorn distributed storage (for 3+ node clusters)
+	@echo "$(CYAN)Deploying Longhorn distributed storage...$(RESET)"
+	@echo "$(YELLOW)Prerequisites: open-iscsi installed on all nodes$(RESET)"
+	helm upgrade --install storage ./kubernetes/system/storage \
+		--namespace kube-system \
+		--values ./kubernetes/system/storage/values.yaml \
+		--set longhorn.enabled=true \
+		--wait --timeout 15m
+	@echo "$(GREEN)✅ Longhorn deployed$(RESET)"
+	@echo "$(CYAN)Checking Longhorn status...$(RESET)"
+	@sleep 30
+	@kubectl get pods -n longhorn-system 2>/dev/null || echo "$(YELLOW)Longhorn pods starting...$(RESET)"
+	@echo "$(CYAN)Access Longhorn UI: kubectl port-forward -n longhorn-system svc/longhorn-frontend 8080:80$(RESET)"
+
+enable-longhorn: ## Enable Longhorn storage (manual step)
+	@echo "$(YELLOW)To enable Longhorn, set 'longhorn_enabled: true' in 'ansible/inventory/group_vars/all.yml' and re-run 'make infra'$(RESET)"
+	@echo "$(YELLOW)Or deploy directly with: make longhorn-stack$(RESET)"
+
+disable-longhorn: ## Disable Longhorn storage (manual step)
+	@echo "$(YELLOW)To disable Longhorn, set 'longhorn_enabled: false' in 'ansible/inventory/group_vars/all.yml' and re-run 'make infra'$(RESET)"
+	@echo "$(RED)Warning: This will remove all Longhorn volumes and data!$(RESET)"
+
+longhorn-status: ## Check Longhorn deployment status
+	@echo "$(CYAN)Checking Longhorn status...$(RESET)"
+	@if kubectl get namespace longhorn-system >/dev/null 2>&1; then \
+		echo "$(GREEN)✅ Longhorn namespace exists$(RESET)"; \
+		kubectl get pods -n longhorn-system; \
+		echo ""; \
+		kubectl get storageclass longhorn 2>/dev/null && echo "$(GREEN)✅ Longhorn storage class available$(RESET)" || echo "$(YELLOW)⚠️  Longhorn storage class not found$(RESET)"; \
+		echo ""; \
+		echo "$(CYAN)Longhorn UI: kubectl port-forward -n longhorn-system svc/longhorn-frontend 8080:80$(RESET)"; \
+	else \
+		echo "$(RED)❌ Longhorn not deployed$(RESET)"; \
+		echo "$(YELLOW)Deploy with: make longhorn-stack$(RESET)"; \
+	fi
 
 ##@ GitOps (ArgoCD)
 
@@ -534,6 +570,7 @@ help: ## Display this help
 	@echo "  system-components       Deploy all system components"
 	@echo "  monitoring-stack        Deploy monitoring (Prometheus, Grafana)"
 	@echo "  storage-stack           Deploy hybrid storage (local-path + NFS)"
+	@echo "  longhorn-stack          Deploy Longhorn distributed storage"
 	@echo "  gitea-stack             Deploy Gitea Git server for private workloads"
 	@echo "  setup-gitea-repos       Setup required repositories after Gitea deployment"
 	@echo ""
@@ -574,6 +611,9 @@ help: ## Display this help
 	@echo "  deploy-nfs      Deploy NFS storage provisioner"
 	@echo "  enable-nfs      Enable NFS storage"
 	@echo "  disable-nfs     Disable NFS storage"
+	@echo "  enable-longhorn Enable Longhorn storage"
+	@echo "  disable-longhorn Disable Longhorn storage"
+	@echo "  longhorn-status Check Longhorn deployment status"
 	@echo ""
 	@echo "Provisioning:"
 	@echo "  autoinstall-usb         Create unattended installation USB"

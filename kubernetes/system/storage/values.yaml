@@ -47,6 +47,77 @@ nfs:
       archiveOnDelete: "false"
       pathPattern: "${.PVC.namespace}-${.PVC.name}"
 
+# Longhorn Storage (Cloud-Native Distributed Storage)
+longhorn:
+  enabled: false  # Longhorn disabled by default - enable for production clusters
+  
+  # Longhorn Helm chart configuration
+  chart:
+    repository: "https://charts.longhorn.io"
+    name: "longhorn"
+    version: "1.7.1"
+    namespace: "longhorn-system"
+  
+  # Longhorn configuration
+  config:
+    # Default number of replicas for volumes
+    defaultReplicaCount: 3
+    
+    # Default storage class
+    defaultStorageClass:
+      enabled: true
+      isDefaultClass: false  # Don't override k3s local-path as default
+      reclaimPolicy: "Delete"
+      allowVolumeExpansion: true
+      parameters:
+        numberOfReplicas: "3"
+        staleReplicaTimeout: "30"
+        diskSelector: ""
+        nodeSelector: ""
+        recurringJobSelector: ""
+    
+    # Global settings
+    settings:
+      # Backup configuration
+      backupTarget: ""  # Configure S3/NFS backup target if needed
+      backupTargetCredentialSecret: ""
+      
+      # Performance settings
+      concurrentAutomaticEngineUpgradePerNodeLimit: 1
+      defaultDataPath: "/var/lib/longhorn/"
+      
+      # UI and authentication
+      authenticationMethod: "none"  # Options: none, basic-auth, openid
+      
+    # Resource configuration
+    resources:
+      # Manager resources
+      manager:
+        requests:
+          memory: 128Mi
+          cpu: 50m
+        limits:
+          memory: 256Mi
+          cpu: 200m
+      
+      # Driver resources  
+      driver:
+        requests:
+          memory: 64Mi
+          cpu: 25m
+        limits:
+          memory: 128Mi
+          cpu: 100m
+      
+      # UI resources
+      ui:
+        requests:
+          memory: 64Mi
+          cpu: 25m
+        limits:
+          memory: 128Mi
+          cpu: 100m
+
 # Additional storage classes (can be extended)
 additionalStorageClasses: []
 #  - name: "fast-ssd"

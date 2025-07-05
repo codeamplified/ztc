@@ -1,0 +1,143 @@
+{{- if .Values.longhorn.enabled }}
+---
+# Longhorn Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.longhorn.chart.namespace }}
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: longhorn
+
+---
+# Longhorn Installation Job
+# This job installs Longhorn using Helm within the cluster
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: longhorn-installer
+  namespace: {{ .Values.longhorn.chart.namespace }}
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: longhorn-installer
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "homelab-storage.labels" . | nindent 8 }}
+        app.kubernetes.io/component: longhorn-installer
+    spec:
+      serviceAccountName: longhorn-installer
+      restartPolicy: OnFailure
+      containers:
+      - name: helm-installer
+        image: alpine/helm:3.14.0
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            echo "Installing Longhorn..."
+            helm repo add longhorn {{ .Values.longhorn.chart.repository }}
+            helm repo update
+            
+            # Create values file
+            cat > /tmp/longhorn-values.yaml << EOF
+            defaultSettings:
+              defaultReplicaCount: {{ .Values.longhorn.config.defaultReplicaCount }}
+              defaultDataPath: {{ .Values.longhorn.config.settings.defaultDataPath | quote }}
+              concurrentAutomaticEngineUpgradePerNodeLimit: {{ .Values.longhorn.config.settings.concurrentAutomaticEngineUpgradePerNodeLimit }}
+              {{- if .Values.longhorn.config.settings.backupTarget }}
+              backupTarget: {{ .Values.longhorn.config.settings.backupTarget | quote }}
+              {{- end }}
+              {{- if .Values.longhorn.config.settings.backupTargetCredentialSecret }}
+              backupTargetCredentialSecret: {{ .Values.longhorn.config.settings.backupTargetCredentialSecret | quote }}
+              {{- end }}
+            
+            longhornManager:
+              resources:
+                {{- toYaml .Values.longhorn.config.resources.manager | nindent 16 }}
+            
+            longhornDriver:
+              resources:
+                {{- toYaml .Values.longhorn.config.resources.driver | nindent 16 }}
+            
+            longhornUI:
+              resources:
+                {{- toYaml .Values.longhorn.config.resources.ui | nindent 16 }}
+            
+            service:
+              ui:
+                type: ClusterIP
+            
+            persistence:
+              defaultClass: {{ .Values.longhorn.config.defaultStorageClass.isDefaultClass }}
+              defaultClassReplicaCount: {{ .Values.longhorn.config.defaultStorageClass.parameters.numberOfReplicas }}
+              reclaimPolicy: {{ .Values.longhorn.config.defaultStorageClass.reclaimPolicy }}
+            
+            csi:
+              kubeletRootDir: /var/lib/kubelet
+              attacherReplicaCount: 1
+              provisionerReplicaCount: 1
+              resizerReplicaCount: 1
+              snapshotterReplicaCount: 1
+            EOF
+            
+            # Install or upgrade Longhorn
+            helm upgrade --install {{ .Values.longhorn.chart.name }} longhorn/{{ .Values.longhorn.chart.name }} \
+              --namespace {{ .Values.longhorn.chart.namespace }} \
+              --version {{ .Values.longhorn.chart.version }} \
+              --values /tmp/longhorn-values.yaml \
+              --wait \
+              --timeout=10m
+            
+            echo "Longhorn installation completed successfully!"
+
+---
+# Service Account for Longhorn Installer
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: longhorn-installer
+  namespace: {{ .Values.longhorn.chart.namespace }}
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: longhorn-installer
+
+---
+# ClusterRole for Longhorn Installer
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: longhorn-installer
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: longhorn-installer
+rules:
+  # Permissions needed to install Longhorn via Helm
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+
+---
+# ClusterRoleBinding for Longhorn Installer
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: longhorn-installer
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: longhorn-installer
+subjects:
+  - kind: ServiceAccount
+    name: longhorn-installer
+    namespace: {{ .Values.longhorn.chart.namespace }}
+roleRef:
+  kind: ClusterRole
+  name: longhorn-installer
+  apiGroup: rbac.authorization.k8s.io
+
+{{- end }}

@@ -37,6 +37,9 @@ local_storage_path: "/opt/local-path-provisioner"
 # NFS storage configuration (optional)
 nfs_enabled: true  # Set to true to enable NFS server installation
 nfs_export_path: "/export/k8s"
+
+# Longhorn storage configuration (optional)
+longhorn_enabled: false  # Set to true to enable Longhorn distributed storage
 # WARNING: no_root_squash is a security risk. It allows the root user on the client to have root access on the NFS server.
 # This is necessary for some Kubernetes provisioners, but should be used with caution in a production environment.
 nfs_export_options: "*(rw,sync,no_subtree_check,no_root_squash)"

@@ -1,6 +1,6 @@
 # Zero Touch Cluster Makefile
 
-.PHONY: help setup check infra storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack deploy-storage deploy-nfs enable-nfs disable-nfs argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs
+.PHONY: help setup check infra storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack setup-gitea-repos deploy-storage deploy-nfs enable-nfs disable-nfs argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs
 
 # Default target
 .DEFAULT_GOAL := help
@@ -105,7 +105,7 @@ dns-status: ## Check DNS server status and health
 		echo "$(RED)❌ DNS service is not running or storage node unreachable$(RESET)"; \
 	fi
 
-infra: storage cluster copy-kubeconfig install-sealed-secrets post-cluster-setup deploy-dns system-components argocd ## Setup complete infrastructure with GitOps
+infra: storage cluster copy-kubeconfig install-sealed-secrets post-cluster-setup deploy-dns system-components setup-gitea-repos argocd ## Setup complete infrastructure with GitOps
 	@echo "$(GREEN)✅ Complete Zero Touch Cluster infrastructure deployed!$(RESET)"
 	@echo "$(CYAN)Check credentials in credentials.txt file$(RESET)"
 	@echo "$(CYAN)Access ArgoCD UI: kubectl port-forward svc/argocd-server -n argocd 8080:80$(RESET)"
@@ -161,6 +161,11 @@ gitea-stack: ## Deploy Gitea Git server for private workloads
 	@echo "$(CYAN)Access Gitea UI: http://gitea.homelab.lan$(RESET)"
 	@echo "$(CYAN)SSH clone: git clone git@gitea.homelab.lan:30022/user/repo.git$(RESET)"
 	@echo "$(YELLOW)Default admin: ztc-admin / changeme123 (change after first login)$(RESET)"
+
+setup-gitea-repos: ## Setup required Gitea repositories after deployment
+	@echo "$(CYAN)Setting up Gitea repositories...$(RESET)"
+	@chmod +x provisioning/lib/setup-gitea-repos.sh
+	@./provisioning/lib/setup-gitea-repos.sh
 
 ##@ Kubernetes (Legacy/Direct)
 
@@ -503,6 +508,7 @@ help: ## Display this help
 	@echo "  monitoring-stack        Deploy monitoring (Prometheus, Grafana)"
 	@echo "  storage-stack           Deploy hybrid storage (local-path + NFS)"
 	@echo "  gitea-stack             Deploy Gitea Git server for private workloads"
+	@echo "  setup-gitea-repos       Setup required repositories after Gitea deployment"
 	@echo ""
 	@echo "Private Workloads:"
 	@echo "  deploy-n8n              Deploy n8n workflow automation platform"

@@ -243,7 +243,7 @@ make gitea-admin-password
 
 ### Git Operations:
 ```bash
-# Clone via HTTPS
+# Clone via HTTPS (external access)
 git clone http://gitea.homelab.lan/ztc-admin/my-workloads.git
 
 # Clone via SSH (after adding SSH keys to Gitea)
@@ -260,8 +260,10 @@ git push origin main
 1. **Create Repository**: Use Gitea web UI to create new repository
 2. **Clone Locally**: `git clone http://gitea.homelab.lan/user/repo.git`
 3. **Add Kubernetes Manifests**: Create your application YAML files
-4. **Configure ArgoCD**: Update ArgoCD Application to point to your Gitea repo
+4. **Configure ArgoCD**: ArgoCD automatically uses internal service URLs for repository access
 5. **Deploy**: ArgoCD automatically syncs and deploys your applications
+
+**Note**: The workload deployment system automatically handles the URL translation between external user access (`gitea.homelab.lan`) and internal cluster access (`gitea-http.gitea.svc.cluster.local:3000`) for seamless GitOps integration.
 
 ### Resource Usage:
 - **Gitea**: ~200MB RAM, minimal CPU (homelab-optimized)
@@ -300,13 +302,18 @@ kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data}' | jq
 kubectl apply -f kubernetes/system/gitea/values-secret.yaml
 ```
 
-**2. ArgoCD Applications Show "no such host" for gitea.homelab.lan**
+**2. ArgoCD Applications Show Authentication Errors**
 ```bash
 # Check if ArgoCD repository credentials are configured
-kubectl get secret -n argocd gitea-repo-credentials
+kubectl get secret -n argocd gitea-repo-credentials -o yaml
 
+# Verify the secret has all required fields (type, url, username, password)
 # If missing, apply repository credentials for internal access:
 kubectl apply -f kubernetes/system/argocd/config/gitea-repository-credentials.yaml
+
+# Restart ArgoCD components to pick up new credentials
+kubectl rollout restart deployment/argocd-repo-server -n argocd
+kubectl rollout restart statefulset/argocd-application-controller -n argocd
 ```
 
 **3. Web UI Login Issues**

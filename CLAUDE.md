@@ -187,36 +187,126 @@ make uncordon-node NODE=<node-name>     # Uncordon node after maintenance
 
 ## Secrets Management
 
-**SECURE BY DEFAULT**: Zero Touch Cluster implements production-ready secrets management following ADR-001.
+**SECURE BY DEFAULT**: Zero Touch Cluster implements production-ready secrets management with Vaultwarden password manager, following ADR-001.
 
-### Modern Secure Architecture:
-- **Interactive Setup**: `make setup` wizard handles all secrets automatically
-- **Encrypted Storage**: All secrets encrypted (Ansible Vault + Sealed Secrets)
-- **Automated Backup**: `make backup-secrets` creates encrypted recovery archive
+### Two-Layer Security Architecture
+
+#### **Layer 1: Infrastructure Secrets (Ansible Vault + Sealed Secrets)**
+- **Interactive Setup**: `make setup` wizard handles all infrastructure secrets automatically
+- **Encrypted Storage**: All infrastructure secrets encrypted (Ansible Vault + Sealed Secrets)
 - **Git Protection**: Careful handling to prevent accidental secret commits
 - **No Manual Editing**: Zero exposure to plaintext secrets during setup
 
-### Secret Types & Encryption:
-- **Infrastructure secrets**: `ansible/inventory/secrets.yml` (ansible-vault encrypted)
-- **Kubernetes secrets**: Sealed Secrets (encrypted manifests safe to commit)
-- **Recovery**: Single encrypted backup file contains all crown jewels
-- **Git safeguards**: Careful workflows to prevent accidental secret exposure
+#### **Layer 2: User Credential Management (Vaultwarden)**
+- **Professional Password Manager**: Self-hosted Vaultwarden for all service credentials
+- **Browser Integration**: Auto-fill, secure sharing, mobile app access
+- **Centralized Access**: Single source of truth for all ZTC system credentials
+- **Family Friendly**: Multiple users, secure sharing without password exposure
 
-### Key Security Features:
+### Credential Access Methods
+
+#### **Primary: Vaultwarden Password Manager**
+```bash
+# Open Vaultwarden UI in browser
+make credentials
+
+# Show Vaultwarden master credentials
+make show-credentials
+
+# Access via web interface
+# URL: http://vault.homelab.lan
+# Username: ztc-admin
+# Password: [auto-generated secure password]
+```
+
+#### **Fallback: CLI Commands**
+```bash
+# Show all system passwords in terminal
+make show-passwords
+
+# Individual service credentials
+kubectl get secret -n monitoring grafana-admin-credentials -o jsonpath='{.data.admin-password}' | base64 -d
+kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.password}' | base64 -d
+kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+```
+
+### Secret Types & Encryption
+
+#### **Infrastructure Secrets** (Ansible Vault):
+- SSH keys and cluster tokens in `ansible/inventory/secrets.yml`
+- Ansible vault password in `.ansible-vault-password`
+- k3s cluster initialization tokens
+
+#### **Application Secrets** (Sealed Secrets):
+- Service passwords encrypted as Kubernetes secrets
+- Vaultwarden admin credentials
+- GitOps repository access tokens
+- Monitoring stack authentication
+
+#### **User Credentials** (Vaultwarden):
+- Grafana admin access (monitoring)
+- Gitea admin access (git server)
+- ArgoCD admin access (gitops)
+- Future service credentials automatically organized
+
+### Security Improvements Over Traditional Approaches
+
+#### **Eliminated Security Risks:**
+- ❌ **No more plaintext credential files** (credentials.txt)
+- ❌ **No password copy/paste vulnerabilities**
+- ❌ **No scattered credentials across multiple tools**
+- ❌ **No manual credential management**
+
+#### **Enhanced Security Features:**
 - ✅ **Zero plaintext secrets** on disk outside of memory
+- ✅ **Professional password management** with encryption
 - ✅ **Automated secret generation** with strong defaults
 - ✅ **Git workflow protection** via careful secret handling
-- ✅ **One-command backup/recovery** for disaster scenarios
-- ✅ **Production-ready encryption** using industry standard tools
+- ✅ **Browser integration** with auto-fill capabilities
+- ✅ **Audit trail** of credential access
+- ✅ **Secure sharing** capabilities for family/team
 
-### Emergency Recovery:
+### Credential Workflow
+
+#### **Setup Phase** (Automated):
+1. `make setup` creates infrastructure secrets
+2. `make infra` deploys cluster with Vaultwarden
+3. Post-cluster setup generates all service credentials
+4. Vaultwarden automatically populated with credentials
+5. User receives only Vaultwarden master credentials
+
+#### **Daily Use**:
+1. Access http://vault.homelab.lan
+2. All service credentials organized by category
+3. Browser auto-fill for seamless login
+4. CLI fallback available when needed
+
+#### **Recovery Scenarios**:
 ```bash
+# Complete backup including Vaultwarden data
+make backup-secrets
+
 # Restore from backup after catastrophic failure
 make recover-secrets
 # Point to your encrypted backup file when prompted
+
+# Access credentials if Vaultwarden unavailable
+make show-passwords
 ```
 
-**Important**: The setup uses the `ubuntu` user (not `admin`) for consistency with Ubuntu cloud images. The setup wizard handles this automatically.
+### Family & Team Features
+
+#### **Multi-User Access**:
+- Create additional Vaultwarden users via web UI
+- Share specific credentials without exposing passwords
+- Per-user access control and audit logging
+
+#### **Device Integration**:
+- Browser extensions for auto-fill
+- Mobile apps for credential access
+- Secure sync across devices
+
+**Important**: The setup uses the `ubuntu` user (not `admin`) for consistency with Ubuntu cloud images. All credential generation is automated during deployment.
 
 ## Private Git Server (Gitea)
 
@@ -667,8 +757,9 @@ kubectl describe storageclass longhorn
 - **Hybrid GitOps**: System components via Helm, applications via ArgoCD with local examples
 - **Infrastructure as Code**: All changes should be managed through Ansible and version controlled  
 - **Single Master**: Current setup uses single k3s master (can be upgraded to HA later)
-- **Production Security**: ADR-001 compliant secrets management with automated safeguards
-- **Immediate Value**: Working cluster with example apps right after deployment
+- **Production Security**: ADR-001 compliant secrets management with Vaultwarden password manager
+- **Credential Management**: No plaintext passwords - all credentials managed via self-hosted Vaultwarden
+- **Immediate Value**: Working cluster with example apps and secure credential access right after deployment
 
 ## Development Guidelines
 

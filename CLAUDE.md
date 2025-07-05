@@ -16,14 +16,14 @@ Zero Touch Cluster is a Kubernetes homelab automation project using k3s and Ansi
 ```bash
 # STREAMLINED WORKFLOW (Recommended):
 # 1. Pre-cluster setup (creates infrastructure secrets only)
-make setup
+make prepare
 
 # 2. Create autoinstall USB drives for each node
 make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-master IP_OCTET=10
 make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-worker-01 IP_OCTET=11
 
 # 3. Deploy complete infrastructure (cluster + sealed secrets + applications)
-make infra
+make setup
 
 # 4. Create encrypted backup of all secrets
 make backup-secrets
@@ -33,7 +33,7 @@ make backup-secrets
 ssh-keygen -t ed25519 -C "your-email@example.com"
 # OR for RSA compatibility: ssh-keygen -t rsa -b 4096
 
-# Setup secrets manually (NOT RECOMMENDED - use 'make setup' instead)
+# Setup secrets manually (NOT RECOMMENDED - use 'make prepare' instead)
 ansible-vault create ansible/inventory/secrets.yml
 # Make sure to set the correct SSH key path in secrets.yml:
 # ansible_ssh_private_key_file: ~/.ssh/id_ed25519  # or ~/.ssh/id_rsa
@@ -52,7 +52,7 @@ make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k8s-storage IP_OCTET=20
 # Nodes will automatically install and be ready for Ansible
 
 # Deploy infrastructure after all nodes are booted
-make infra
+make setup
 ```
 
 ### Kubernetes Cluster Verification
@@ -127,8 +127,8 @@ make teardown      # ⚠️  DESTRUCTIVE: Removes everything for fresh start
 
 # Development cycle
 make teardown      # Clean slate
-make setup         # New secrets and configuration  
-make infra         # Deploy fresh cluster
+make prepare       # New secrets and configuration  
+make setup         # Deploy fresh cluster
 make status        # Verify deployment
 ```
 
@@ -269,8 +269,8 @@ kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.pas
 ### Credential Workflow
 
 #### **Setup Phase** (Automated):
-1. `make setup` creates infrastructure secrets
-2. `make infra` deploys cluster with Vaultwarden
+1. `make prepare` creates infrastructure secrets
+2. `make setup` deploys cluster with Vaultwarden
 3. Post-cluster setup generates all service credentials
 4. Vaultwarden automatically populated with credentials
 5. User receives only Vaultwarden master credentials
@@ -415,7 +415,7 @@ kubectl rollout restart statefulset/argocd-application-controller -n argocd
 - If using default setup: `changeme123` (should be changed to sealed secret)
 
 ### Installation Notes:
-- **First-time deployment**: Use default credentials, then run `make setup` for secure credentials
+- **First-time deployment**: Use default credentials, then run `make prepare` for secure credentials
 - **Startup time**: Allow 2-3 minutes for initial database setup
 - **Resource requirements**: ~300MB RAM total for Gitea + PostgreSQL
 

@@ -1,6 +1,6 @@
 # Zero Touch Cluster Makefile
 
-.PHONY: help setup check infra storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack vaultwarden-stack longhorn-stack setup-gitea-repos deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-homepage undeploy-vaultwarden undeploy-code-server
+.PHONY: help prepare check setup storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack vaultwarden-stack longhorn-stack setup-gitea-repos deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-homepage undeploy-vaultwarden undeploy-code-server
 
 # Default target
 .DEFAULT_GOAL := help
@@ -17,7 +17,7 @@ SSH_KEY := $(HOME)/.ssh/id_ed25519.pub
 
 ##@ Setup & Prerequisites
 
-setup: ## Interactive wizard to set up secrets and prerequisites
+prepare: ## Interactive wizard to prepare infrastructure secrets and prerequisites
 	@chmod +x provisioning/lib/setup-wizard.sh
 	@./provisioning/lib/setup-wizard.sh
 
@@ -32,7 +32,7 @@ trust-hosts: ## Scan and trust SSH host keys for all nodes in the inventory
 backup-secrets: ## Backup all critical secrets to an encrypted archive
 	@echo "$(CYAN)Backing up secrets...$(RESET)"
 	@if [ ! -f .ansible-vault-password ]; then \
-		echo "$(RED)❌ Ansible Vault password file not found. Run 'make setup' first.$(RESET)"; \
+		echo "$(RED)❌ Ansible Vault password file not found. Run 'make prepare' first.$(RESET)"; \
 		exit 1; \
 	fi
 	@echo "$(CYAN)Auto-generating secure backup password...$(RESET)"
@@ -105,9 +105,9 @@ dns-status: ## Check DNS server status and health
 		echo "$(RED)❌ DNS service is not running or storage node unreachable$(RESET)"; \
 	fi
 
-infra: storage cluster copy-kubeconfig install-sealed-secrets post-cluster-setup deploy-dns system-components setup-gitea-repos argocd ## Setup complete infrastructure with GitOps
+setup: storage cluster copy-kubeconfig install-sealed-secrets post-cluster-setup deploy-dns system-components setup-gitea-repos argocd ## Deploy complete Zero Touch Cluster infrastructure with GitOps
 	@echo "$(GREEN)✅ Complete Zero Touch Cluster infrastructure deployed!$(RESET)"
-	@echo "$(CYAN)Check credentials in credentials.txt file$(RESET)"
+	@echo "$(CYAN)🔐 Access credentials via Vaultwarden: make credentials$(RESET)"
 	@echo "$(CYAN)Access ArgoCD UI: kubectl port-forward svc/argocd-server -n argocd 8080:80$(RESET)"
 	@echo "$(CYAN)ArgoCD URL: http://argocd.homelab.lan (after DNS setup)$(RESET)"
 	@echo "$(YELLOW)📋 Next Steps:$(RESET)"
@@ -165,7 +165,7 @@ gitea-stack: ## Deploy Gitea Git server for private workloads
 	@if [ ! -f kubernetes/system/gitea/values-secret.yaml ]; then \
 		echo "$(YELLOW)⚠️  Creating values-secret.yaml from template...$(RESET)"; \
 		cp kubernetes/system/gitea/values-secret.yaml.template kubernetes/system/gitea/values-secret.yaml; \
-		echo "$(RED)❗ Run 'make setup' to generate proper SealedSecret for Gitea admin$(RESET)"; \
+		echo "$(RED)❗ Run 'make prepare' to generate proper SealedSecret for Gitea admin$(RESET)"; \
 	fi
 	@echo "$(CYAN)Updating Helm dependencies...$(RESET)"
 	helm dependency update kubernetes/system/gitea/
@@ -607,9 +607,9 @@ teardown: ## ⚠️  DESTRUCTIVE: Complete cluster teardown for development iter
 	@echo "$(GREEN)✅ Complete cluster teardown finished!$(RESET)"
 	@echo ""
 	@echo "$(CYAN)🚀 Ready for fresh setup:$(RESET)"
-	@echo "  1. Run: make setup"
+	@echo "  1. Run: make prepare"
 	@echo "  2. Create USB drives for nodes"
-	@echo "  3. Boot nodes and run: make infra"
+	@echo "  3. Boot nodes and run: make setup"
 	@echo ""
 	@echo "$(YELLOW)📋 Teardown Summary:$(RESET)"
 	@echo "  • k3s uninstalled from all nodes"
@@ -631,26 +631,26 @@ help: ## Display this help
 	@echo "Zero Touch Cluster - Kubernetes Infrastructure Automation"
 	@echo ""
 	@echo "Streamlined Setup (Recommended):"
-	@echo "  make setup      # Create infrastructure secrets (pre-cluster)"
-	@echo "  make infra      # Deploy complete infrastructure (storage + cluster + apps)"
+	@echo "  make prepare    # Create infrastructure secrets (pre-cluster)"
+	@echo "  make setup      # Deploy complete infrastructure (storage + cluster + apps)"
 	@echo ""
 	@echo "Quick Start (Autoinstall):"
-	@echo "  make setup                                                          # Create secrets"
+	@echo "  make prepare                                                        # Create secrets"
 	@echo "  make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-master IP_OCTET=10  # Create USB"
-	@echo "  make infra                                                          # Deploy after nodes boot"
+	@echo "  make setup                                                          # Deploy after nodes boot"
 	@echo ""
-	@echo "Setup & Prerequisites:"
-	@echo "  setup           Create secrets templates and check prerequisites"
-	@echo "  check           Check prerequisites and system readiness"
+	@echo "Main Commands:"
+	@echo "  prepare         Create infrastructure secrets and check prerequisites"
+	@echo "  setup           Deploy complete Zero Touch Cluster infrastructure (recommended)"
 	@echo ""
-	@echo "Infrastructure:"
+	@echo "Infrastructure Components:"
 	@echo "  storage               Setup K8s storage server"
 	@echo "  cluster               Setup k3s cluster"
 	@echo "  deploy-dns            Deploy DNS server for homelab services"
 	@echo "  dns-status            Check DNS server status and health"
 	@echo "  copy-kubeconfig       Copy kubeconfig from master to local kubectl"
 	@echo "  post-cluster-setup    Create application sealed secrets"
-	@echo "  infra                 Setup complete infrastructure with GitOps (recommended)"
+	@echo "  check                 Check prerequisites and system readiness"
 	@echo ""
 	@echo "System Components (Helm):"
 	@echo "  system-components       Deploy all system components"

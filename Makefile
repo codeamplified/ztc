@@ -1,6 +1,6 @@
 # Zero Touch Cluster Makefile
 
-.PHONY: help setup check infra storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack longhorn-stack setup-gitea-repos deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-homepage undeploy-vaultwarden undeploy-code-server
+.PHONY: help setup check infra storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack vaultwarden-stack longhorn-stack setup-gitea-repos deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-homepage undeploy-vaultwarden undeploy-code-server
 
 # Default target
 .DEFAULT_GOAL := help
@@ -117,7 +117,7 @@ infra: storage cluster copy-kubeconfig install-sealed-secrets post-cluster-setup
 
 ##@ System Components (Helm Charts)
 
-system-components: monitoring-stack storage-stack gitea-stack ## Deploy all system components
+system-components: monitoring-stack storage-stack vaultwarden-stack gitea-stack ## Deploy all system components
 	@echo "$(GREEN)✅ All system components deployed$(RESET)"
 
 monitoring-stack: ## Deploy monitoring stack (Prometheus, Grafana, AlertManager)
@@ -142,6 +142,23 @@ storage-stack: ## Deploy storage components (local-path + NFS hybrid)
 		--values ./kubernetes/system/storage/values.yaml \
 		--wait --timeout 5m
 	@echo "$(GREEN)✅ Storage stack deployed (local-path + NFS)$(RESET)"
+
+vaultwarden-stack: ## Deploy Vaultwarden password manager for system credentials
+	@echo "$(CYAN)Deploying Vaultwarden credential manager...$(RESET)"
+	@if [ ! -f kubernetes/system/vaultwarden/values-secret.yaml ]; then \
+		echo "$(YELLOW)⚠️  Creating values-secret.yaml from template...$(RESET)"; \
+		cp kubernetes/system/vaultwarden/values-secret.yaml.template kubernetes/system/vaultwarden/values-secret.yaml; \
+		echo "$(RED)❗ Edit kubernetes/system/vaultwarden/values-secret.yaml with your sealed secrets$(RESET)"; \
+	fi
+	kubectl apply -f kubernetes/system/vaultwarden/values-secret.yaml
+	helm upgrade --install vaultwarden ./kubernetes/system/vaultwarden \
+		--namespace vaultwarden \
+		--create-namespace \
+		--values ./kubernetes/system/vaultwarden/values.yaml \
+		--wait --timeout 10m
+	@echo "$(GREEN)✅ Vaultwarden deployed$(RESET)"
+	@echo "$(CYAN)Access: http://vault.homelab.lan$(RESET)"
+	@echo "$(YELLOW)Get credentials: make show-credentials$(RESET)"
 
 gitea-stack: ## Deploy Gitea Git server for private workloads
 	@echo "$(CYAN)Deploying Gitea Git server...$(RESET)"
@@ -225,6 +242,75 @@ longhorn-status: ## Check Longhorn deployment status
 		echo "$(RED)❌ Longhorn not deployed$(RESET)"; \
 		echo "$(YELLOW)Deploy with: make longhorn-stack$(RESET)"; \
 	fi
+
+##@ Credential Management
+
+credentials: ## Open Vaultwarden credentials UI in browser
+	@echo "$(CYAN)Opening Vaultwarden credentials manager...$(RESET)"
+	@if kubectl get namespace vaultwarden >/dev/null 2>&1; then \
+		echo "$(GREEN)🌐 Access: http://vault.homelab.lan$(RESET)"; \
+		echo "$(CYAN)💡 Tip: All ZTC system credentials are stored in 'ZTC System Credentials'$(RESET)"; \
+		command -v xdg-open >/dev/null && xdg-open http://vault.homelab.lan 2>/dev/null || \
+		command -v open >/dev/null && open http://vault.homelab.lan 2>/dev/null || \
+		echo "$(YELLOW)Manual: Open http://vault.homelab.lan in your browser$(RESET)"; \
+	else \
+		echo "$(RED)❌ Vaultwarden not deployed$(RESET)"; \
+		echo "$(YELLOW)Deploy with: make vaultwarden-stack$(RESET)"; \
+	fi
+
+show-credentials: ## Display Vaultwarden master credentials
+	@echo "$(CYAN)Vaultwarden Master Credentials:$(RESET)"
+	@if kubectl get secret -n vaultwarden vaultwarden-admin-secret >/dev/null 2>&1; then \
+		echo "$(GREEN)🌐 URL: http://vault.homelab.lan$(RESET)"; \
+		echo "$(GREEN)👤 Username: $$(kubectl get secret -n vaultwarden vaultwarden-admin-secret -o jsonpath='{.data.username}' | base64 -d)$(RESET)"; \
+		echo "$(GREEN)🔑 Password: $$(kubectl get secret -n vaultwarden vaultwarden-admin-secret -o jsonpath='{.data.password}' | base64 -d)$(RESET)"; \
+		echo ""; \
+		echo "$(CYAN)📝 All system service credentials are organized in Vaultwarden$(RESET)"; \
+	else \
+		echo "$(RED)❌ Vaultwarden credentials not found$(RESET)"; \
+		echo "$(YELLOW)Deploy with: make vaultwarden-stack$(RESET)"; \
+	fi
+
+show-passwords: ## Show all system service passwords (fallback CLI access)
+	@echo "$(CYAN)ZTC System Service Credentials:$(RESET)"
+	@echo ""
+	@echo "$(GREEN)🔐 Vaultwarden (Credential Manager):$(RESET)"
+	@if kubectl get secret -n vaultwarden vaultwarden-admin-secret >/dev/null 2>&1; then \
+		echo "  URL: http://vault.homelab.lan"; \
+		echo "  Username: $$(kubectl get secret -n vaultwarden vaultwarden-admin-secret -o jsonpath='{.data.username}' | base64 -d)"; \
+		echo "  Password: $$(kubectl get secret -n vaultwarden vaultwarden-admin-secret -o jsonpath='{.data.password}' | base64 -d)"; \
+	else \
+		echo "  $(RED)❌ Not deployed$(RESET)"; \
+	fi
+	@echo ""
+	@echo "$(GREEN)📊 Grafana (Monitoring):$(RESET)"
+	@if kubectl get secret -n monitoring grafana-admin-secret >/dev/null 2>&1; then \
+		echo "  URL: http://grafana.homelab.lan"; \
+		echo "  Username: admin"; \
+		echo "  Password: $$(kubectl get secret -n monitoring grafana-admin-secret -o jsonpath='{.data.admin-password}' | base64 -d)"; \
+	else \
+		echo "  $(RED)❌ Not deployed$(RESET)"; \
+	fi
+	@echo ""
+	@echo "$(GREEN)🦊 Gitea (Git Server):$(RESET)"
+	@if kubectl get secret -n gitea gitea-admin-secret >/dev/null 2>&1; then \
+		echo "  URL: http://gitea.homelab.lan"; \
+		echo "  Username: $$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.username}' | base64 -d)"; \
+		echo "  Password: $$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.password}' | base64 -d)"; \
+	else \
+		echo "  $(RED)❌ Not deployed$(RESET)"; \
+	fi
+	@echo ""
+	@echo "$(GREEN)🚀 ArgoCD (GitOps):$(RESET)"
+	@if kubectl get secret -n argocd argocd-initial-admin-secret >/dev/null 2>&1; then \
+		echo "  URL: http://argocd.homelab.lan"; \
+		echo "  Username: admin"; \
+		echo "  Password: $$(kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"; \
+	else \
+		echo "  $(RED)❌ Not deployed$(RESET)"; \
+	fi
+	@echo ""
+	@echo "$(CYAN)💡 Tip: Use 'make credentials' to access the web UI$(RESET)"
 
 ##@ GitOps (ArgoCD)
 
@@ -570,9 +656,15 @@ help: ## Display this help
 	@echo "  system-components       Deploy all system components"
 	@echo "  monitoring-stack        Deploy monitoring (Prometheus, Grafana)"
 	@echo "  storage-stack           Deploy hybrid storage (local-path + NFS)"
+	@echo "  vaultwarden-stack       Deploy Vaultwarden credential manager"
 	@echo "  longhorn-stack          Deploy Longhorn distributed storage"
 	@echo "  gitea-stack             Deploy Gitea Git server for private workloads"
 	@echo "  setup-gitea-repos       Setup required repositories after Gitea deployment"
+	@echo ""
+	@echo "Credential Management:"
+	@echo "  credentials             Open Vaultwarden credentials UI in browser"
+	@echo "  show-credentials        Display Vaultwarden master credentials"
+	@echo "  show-passwords          Show all system service passwords (CLI)"
 	@echo ""
 	@echo "Private Workloads:"
 	@echo "  deploy-n8n              Deploy n8n workflow automation platform"

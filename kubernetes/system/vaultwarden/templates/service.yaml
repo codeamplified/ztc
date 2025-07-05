@@ -1,0 +1,18 @@
+{{- if .Values.vaultwarden.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ztc-vaultwarden.fullname" . }}
+  namespace: {{ include "ztc-vaultwarden.namespace" . }}
+  labels:
+    {{- include "ztc-vaultwarden.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - port: {{ .Values.service.port }}
+    targetPort: {{ .Values.service.targetPort }}
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "ztc-vaultwarden.selectorLabels" . | nindent 4 }}
+{{- end }}

@@ -24,7 +24,7 @@ spec:
         runAsNonRoot: true
       containers:
       - name: vaultwarden
-        image: vaultwarden/server:latest
+        image: vaultwarden/server:$IMAGE_TAG
         ports:
         - containerPort: 80
           name: http
@@ -39,6 +39,10 @@ spec:
           value: "true"
         - name: DATA_FOLDER
           value: "/data"
+        - name: ROCKET_TLS
+          value: "{disabled=true}"
+        - name: ROCKET_PORT
+          value: "80"
         volumeMounts:
         - name: vaultwarden-data
           mountPath: /data

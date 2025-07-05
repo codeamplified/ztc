@@ -22,15 +22,34 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         runAsNonRoot: true
+        fsGroupChangePolicy: "OnRootMismatch"
+      initContainers:
+      - name: init-permissions
+        image: busybox:1.35
+        command: ['sh', '-c']
+        args:
+        - |
+          if [ ! -d /app/data ]; then
+            mkdir -p /app/data
+          fi
+          chown -R 1000:1000 /app/data
+          chmod -R 755 /app/data
+        securityContext:
+          runAsUser: 0
+        volumeMounts:
+        - name: uptime-kuma-data
+          mountPath: /app/data
       containers:
       - name: uptime-kuma
-        image: louislam/uptime-kuma:latest
+        image: louislam/uptime-kuma:$IMAGE_TAG
         ports:
         - containerPort: 3001
           name: http
         env:
         - name: UPTIME_KUMA_PORT
           value: "3001"
+        - name: UPTIME_KUMA_HOST
+          value: "$HOSTNAME"
         volumeMounts:
         - name: uptime-kuma-data
           mountPath: /app/data

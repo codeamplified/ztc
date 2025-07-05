@@ -148,8 +148,9 @@ remove_from_repository() {
     local repo_url="$(echo "$GITEA_URL" | sed 's|http://|http://'\"$GITEA_USER\"':'\"$encoded_password\"'@|')/$GITEA_USER/$WORKLOADS_REPO.git"
     local repo_dir="$TEMP_DIR/workloads"
     
-    # Clone repository
-    if git clone "$repo_url" 2>/dev/null; then
+    # Clone repository  
+    CYAN "Cloning $GITEA_URL/$GITEA_USER/$WORKLOADS_REPO.git..."
+    if git clone "$repo_url" >/dev/null 2>&1; then
         cd "$repo_dir"
         
         # Configure Git

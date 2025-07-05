@@ -24,7 +24,7 @@ spec:
         runAsNonRoot: true
       containers:
       - name: code-server
-        image: codercom/code-server:latest
+        image: codercom/code-server:$IMAGE_TAG
         ports:
         - containerPort: 8080
           name: http
@@ -37,6 +37,8 @@ spec:
           value: "$PASSWORD"
         - name: PROXY_DOMAIN
           value: "$HOSTNAME"
+        - name: CS_DISABLE_GETTING_STARTED_TAB
+          value: "true"
         args:
         - --bind-addr
         - 0.0.0.0:8080

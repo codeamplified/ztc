@@ -23,6 +23,8 @@ spec:
         env:
         - name: N8N_HOST
           value: "$HOSTNAME"
+        - name: N8N_SECURE_COOKIE
+          value: "false"
         resources:
           requests:
             memory: $MEMORY_REQUEST

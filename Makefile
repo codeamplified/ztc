@@ -1,6 +1,6 @@
 # Zero Touch Cluster Makefile
 
-.PHONY: help setup check infra storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack setup-gitea-repos deploy-storage deploy-nfs enable-nfs disable-nfs argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs
+.PHONY: help setup check infra storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack setup-gitea-repos deploy-storage deploy-nfs enable-nfs disable-nfs argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-homepage undeploy-vaultwarden undeploy-code-server
 
 # Default target
 .DEFAULT_GOAL := help
@@ -249,6 +249,33 @@ deploy-vaultwarden: ## Deploy Vaultwarden password manager
 
 deploy-code-server: ## Deploy Code Server development environment
 	@$(call deploy_workload,code-server)
+
+##@ Workload Undeployment
+
+undeploy-workload: ## Undeploy specific workload (usage: make undeploy-workload WORKLOAD=n8n)
+	@if [ -z "$(WORKLOAD)" ]; then \
+		echo "$(RED)❌ Usage: make undeploy-workload WORKLOAD=<name>$(RESET)"; \
+		echo "$(CYAN)Available workloads:$(RESET)"; \
+		kubectl get applications -n argocd -l app.kubernetes.io/part-of=ztc-workloads -o jsonpath='{range .items[*]}{.metadata.labels.ztc\.homelab/template}{"\n"}{end}' 2>/dev/null | sort -u | sed 's/^/  /' || echo "  (none)"; \
+		exit 1; \
+	fi
+	@chmod +x provisioning/lib/undeploy-workload.sh
+	@./provisioning/lib/undeploy-workload.sh $(WORKLOAD)
+
+undeploy-n8n: ## Undeploy n8n workflow automation platform
+	@$(MAKE) undeploy-workload WORKLOAD=n8n
+
+undeploy-uptime-kuma: ## Undeploy Uptime Kuma service monitoring
+	@$(MAKE) undeploy-workload WORKLOAD=uptime-kuma
+
+undeploy-homepage: ## Undeploy Homepage service dashboard
+	@$(MAKE) undeploy-workload WORKLOAD=homepage
+
+undeploy-vaultwarden: ## Undeploy Vaultwarden password manager
+	@$(MAKE) undeploy-workload WORKLOAD=vaultwarden
+
+undeploy-code-server: ## Undeploy Code Server development environment
+	@$(MAKE) undeploy-workload WORKLOAD=code-server
 
 # Helper function to deploy workloads with override support
 define deploy_workload
@@ -518,6 +545,14 @@ help: ## Display this help
 	@echo "  deploy-code-server      Deploy Code Server development environment"
 	@echo "  list-workloads          List all deployed workloads"
 	@echo "  workload-status         Check specific workload status"
+	@echo ""
+	@echo "Workload Undeployment:"
+	@echo "  undeploy-workload       Undeploy specific workload (usage: WORKLOAD=name)"
+	@echo "  undeploy-n8n            Undeploy n8n workflow automation platform"
+	@echo "  undeploy-uptime-kuma    Undeploy Uptime Kuma service monitoring"
+	@echo "  undeploy-homepage       Undeploy Homepage service dashboard"
+	@echo "  undeploy-vaultwarden    Undeploy Vaultwarden password manager"
+	@echo "  undeploy-code-server    Undeploy Code Server development environment"
 	@echo ""
 	@echo "Workload Customization:"
 	@echo "  make deploy-n8n STORAGE_SIZE=10Gi HOSTNAME=n8n.homelab.lan"

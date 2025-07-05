@@ -8,6 +8,7 @@ ansible/inventory/secrets.yml
 *-secret.yml
 */values-secret.yaml
 */values-secret.yml
+*-credentials.yaml
 
 # Temporary secret files created during setup/development
 *-secret-temp.yaml

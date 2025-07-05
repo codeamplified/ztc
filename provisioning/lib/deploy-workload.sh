@@ -18,6 +18,7 @@ TEMPLATE_ENGINE="$SCRIPT_DIR/template-engine.sh"
 
 # Configuration (can be overridden via environment variables)
 GITEA_URL="${GITEA_URL:-http://gitea.homelab.lan}"
+GITEA_INTERNAL_URL="${GITEA_INTERNAL_URL:-http://gitea-http.gitea.svc.cluster.local:3000}"
 GITEA_USER="${GITEA_USER:-ztc-admin}"
 WORKLOADS_REPO="${WORKLOADS_REPO:-workloads}"
 TEMP_DIR="/tmp/ztc-workload-deploy-$$"
@@ -110,9 +111,10 @@ create_repository() {
 
 # Clone or update workloads repository
 setup_repository() {
-    # Include credentials in repo URL for private repository access
+    # Include credentials in repo URL for private repository access (URL encode password)
     local repo_url_base="$GITEA_URL/$GITEA_USER/$WORKLOADS_REPO.git"
-    local repo_url="$(echo "$GITEA_URL" | sed 's|http://|http://'"$GITEA_USER"':'"$GITEA_PASSWORD"'@|')/$GITEA_USER/$WORKLOADS_REPO.git"
+    local encoded_password=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$GITEA_PASSWORD', safe=''))")
+    local repo_url="$(echo "$GITEA_URL" | sed 's|http://|http://'"$GITEA_USER"':'"$encoded_password"'@|')/$GITEA_USER/$WORKLOADS_REPO.git"
     local repo_dir="$TEMP_DIR/workloads"
     
     # Ensure repository exists
@@ -266,7 +268,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: $GITEA_URL/$GITEA_USER/$WORKLOADS_REPO.git
+    repoURL: $GITEA_INTERNAL_URL/$GITEA_USER/$WORKLOADS_REPO.git
     targetRevision: main
     path: apps/$template_name
   destination:

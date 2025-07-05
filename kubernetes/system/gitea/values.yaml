@@ -8,7 +8,6 @@ gitea:
   gitea:
     admin:
       username: "ztc-admin"
-      # password: "changeme123"  # Moved to sealed secret
       email: "admin@homelab.lan"
       existingSecret: gitea-admin-secret  # Now using sealed secret
       

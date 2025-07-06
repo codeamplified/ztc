@@ -1,0 +1,27 @@
+metadata:
+  name: gitea-runner
+  description: "CI/CD runner for automated container builds with Gitea Actions"
+  namespace: gitea-runner
+  category: development
+  
+defaults:
+  runner_count: "2"
+  runner_name: "ztc-runner"
+  gitea_url: "http://gitea-http.gitea.svc.cluster.local:3000"
+  gitea_external_url: "http://gitea.homelab.lan"
+  runner_labels: "ubuntu-latest,docker"
+  docker_in_docker: "true"
+  runner_image: "gitea/act_runner:0.2.6"
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+      
+  # Persistent storage for runner cache
+  storage_enabled: "true"
+  storage_size: "10Gi"
+  storage_class: "local-path"

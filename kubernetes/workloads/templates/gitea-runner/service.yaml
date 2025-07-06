@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea-runner
+  namespace: $WORKLOAD_NAMESPACE
+  labels:
+    app: gitea-runner
+    app.kubernetes.io/name: gitea-runner
+    app.kubernetes.io/part-of: ztc-workloads
+spec:
+  type: ClusterIP
+  ports:
+  - name: docker
+    port: 2376
+    targetPort: 2376
+    protocol: TCP
+  selector:
+    app: gitea-runner

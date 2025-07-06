@@ -1,0 +1,157 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea-runner
+  namespace: $WORKLOAD_NAMESPACE
+  labels:
+    app: gitea-runner
+    app.kubernetes.io/name: gitea-runner
+    app.kubernetes.io/part-of: ztc-workloads
+spec:
+  replicas: $RUNNER_COUNT
+  selector:
+    matchLabels:
+      app: gitea-runner
+  template:
+    metadata:
+      labels:
+        app: gitea-runner
+    spec:
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+      # Init container to register runner with Gitea
+      - name: runner-register
+        image: $RUNNER_IMAGE
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Generate runner token from Gitea admin account
+          RUNNER_TOKEN=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"name":"'$RUNNER_NAME'","labels":["'$RUNNER_LABELS'"]}' \
+            -u "$GITEA_USER:$GITEA_PASSWORD" \
+            "$GITEA_URL/api/v1/admin/runners" | \
+            grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+          
+          if [ -n "$RUNNER_TOKEN" ]; then
+            echo "Runner registered successfully"
+            echo "$RUNNER_TOKEN" > /data/runner_token
+          else
+            echo "Failed to register runner, using manual token"
+            echo "$RUNNER_REGISTRATION_TOKEN" > /data/runner_token
+          fi
+        env:
+        - name: GITEA_URL
+          value: "$GITEA_URL"
+        - name: GITEA_USER
+          valueFrom:
+            secretKeyRef:
+              name: gitea-admin-secret
+              key: username
+        - name: GITEA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gitea-admin-secret
+              key: password
+        - name: RUNNER_NAME
+          value: "$RUNNER_NAME"
+        - name: RUNNER_LABELS
+          value: "$RUNNER_LABELS"
+        - name: RUNNER_REGISTRATION_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: gitea-runner-secret
+              key: registration-token
+              optional: true
+        volumeMounts:
+        - name: runner-data
+          mountPath: /data
+      containers:
+      - name: gitea-runner
+        image: $RUNNER_IMAGE
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Configure runner
+          act_runner register --no-interactive \
+            --instance "$GITEA_URL" \
+            --token "$(cat /data/runner_token)" \
+            --name "$RUNNER_NAME" \
+            --labels "$RUNNER_LABELS"
+          
+          # Start runner daemon
+          act_runner daemon
+        env:
+        - name: GITEA_URL
+          value: "$GITEA_URL"
+        - name: RUNNER_NAME
+          value: "$RUNNER_NAME-$(POD_NAME)"
+        - name: RUNNER_LABELS
+          value: "$RUNNER_LABELS"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: DOCKER_HOST
+          value: "tcp://localhost:2376"
+        - name: DOCKER_TLS_VERIFY
+          value: "1"
+        - name: DOCKER_CERT_PATH
+          value: "/certs/client"
+        resources:
+          requests:
+            memory: $MEMORY_REQUEST
+            cpu: $CPU_REQUEST
+          limits:
+            memory: $MEMORY_LIMIT
+            cpu: $CPU_LIMIT
+        volumeMounts:
+        - name: runner-data
+          mountPath: /data
+        - name: docker-certs
+          mountPath: /certs/client
+          readOnly: true
+        - name: runner-cache
+          mountPath: /cache
+      # Docker-in-Docker sidecar for building containers
+      - name: docker-daemon
+        image: docker:24-dind
+        args:
+        - --storage-driver=overlay2
+        - --host=tcp://0.0.0.0:2376
+        - --tlsverify
+        - --tlscert=/certs/server/cert.pem
+        - --tlskey=/certs/server/key.pem
+        - --tlscacert=/certs/server/ca.pem
+        securityContext:
+          privileged: true
+        env:
+        - name: DOCKER_TLS_CERTDIR
+          value: "/certs"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: docker-data
+          mountPath: /var/lib/docker
+        - name: docker-certs
+          mountPath: /certs
+        - name: runner-cache
+          mountPath: /cache
+      volumes:
+      - name: runner-data
+        emptyDir: {}
+      - name: docker-data
+        emptyDir: {}
+      - name: docker-certs
+        emptyDir: {}
+      - name: runner-cache
+        persistentVolumeClaim:
+          claimName: gitea-runner-cache-pvc

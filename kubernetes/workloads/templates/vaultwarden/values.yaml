@@ -1,0 +1,179 @@
+# Vaultwarden Password Manager Workload Template
+# Optional deployment for users who want professional password management
+
+metadata:
+  name: vaultwarden
+  description: "Self-hosted password manager compatible with Bitwarden clients"
+  category: "security"
+  homepage: "https://github.com/dani-garcia/vaultwarden"
+  
+# Default configuration
+config:
+  # Basic settings
+  hostname: "vault.${HOMELAB_DOMAIN}"
+  signupsAllowed: true  # Allow initial account creation
+  
+  # Resource allocation (homelab-optimized)
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+      
+  # Storage configuration
+  storage:
+    size: "5Gi"
+    storageClass: "nfs-client"  # Use shared storage for data safety
+    
+  # Image configuration
+  image:
+    repository: "vaultwarden/server"
+    tag: "1.32.0"
+    pullPolicy: "IfNotPresent"
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vaultwarden
+  labels:
+    app.kubernetes.io/name: vaultwarden
+    app.kubernetes.io/part-of: ztc-workloads
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vaultwarden-data
+  namespace: vaultwarden
+  labels:
+    app.kubernetes.io/name: vaultwarden
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: ${STORAGE_SIZE:-5Gi}
+  storageClassName: ${STORAGE_CLASS:-nfs-client}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vaultwarden
+  namespace: vaultwarden
+  labels:
+    app.kubernetes.io/name: vaultwarden
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Ensure single instance for data consistency
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vaultwarden
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vaultwarden
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+      containers:
+      - name: vaultwarden
+        image: ${IMAGE_REPOSITORY:-vaultwarden/server}:${IMAGE_TAG:-1.32.0}
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 80
+          protocol: TCP
+        env:
+        - name: DOMAIN
+          value: "http://${HOSTNAME:-vault.homelab.lan}"
+        - name: WEBSOCKET_ENABLED
+          value: "true"
+        - name: DATA_FOLDER
+          value: "/data"
+        - name: ROCKET_PORT
+          value: "80"
+        - name: SIGNUPS_ALLOWED
+          value: "true"
+        # Optional admin token for API access
+        - name: ADMIN_TOKEN
+          value: "${ADMIN_TOKEN:-}"
+        volumeMounts:
+        - name: vaultwarden-data
+          mountPath: /data
+        resources:
+          requests:
+            memory: ${MEMORY_REQUEST:-64Mi}
+            cpu: ${CPU_REQUEST:-50m}
+          limits:
+            memory: ${MEMORY_LIMIT:-256Mi}
+            cpu: ${CPU_LIMIT:-200m}
+        livenessProbe:
+          httpGet:
+            path: /alive
+            port: 80
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /alive
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: vaultwarden-data
+        persistentVolumeClaim:
+          claimName: vaultwarden-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vaultwarden
+  namespace: vaultwarden
+  labels:
+    app.kubernetes.io/name: vaultwarden
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  selector:
+    app.kubernetes.io/name: vaultwarden
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vaultwarden
+  namespace: vaultwarden
+  labels:
+    app.kubernetes.io/name: vaultwarden
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: ${HOSTNAME:-vault.homelab.lan}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vaultwarden
+            port:
+              number: 80

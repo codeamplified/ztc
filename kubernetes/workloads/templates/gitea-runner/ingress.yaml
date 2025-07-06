@@ -1,0 +1,6 @@
+# Gitea runner does not need external ingress
+# Runners communicate directly with Gitea service internally
+# This file is included for template consistency but contains no resources
+
+# Note: If monitoring or management UI is needed in the future,
+# an ingress can be added here pointing to a management service

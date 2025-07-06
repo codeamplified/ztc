@@ -1,6 +1,6 @@
 # Zero Touch Cluster Makefile
 
-.PHONY: help prepare check setup storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack vaultwarden-stack longhorn-stack setup-gitea-repos deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-homepage undeploy-vaultwarden undeploy-code-server
+.PHONY: help prepare check setup storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack longhorn-stack setup-gitea-repos deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-homepage undeploy-code-server deploy-bundle-starter deploy-bundle-monitoring deploy-bundle-productivity deploy-bundle-security deploy-bundle-development list-bundles bundle-status deploy-custom-app deploy-gitea-runner registry-login registry-info
 
 # Default target
 .DEFAULT_GOAL := help
@@ -16,6 +16,14 @@ RESET := \033[0m
 SSH_KEY := $(HOME)/.ssh/id_ed25519.pub
 
 ##@ Setup & Prerequisites
+
+check: ## Check prerequisites and system readiness
+	@echo "$(CYAN)Checking prerequisites...$(RESET)"
+	@command -v ansible >/dev/null || (echo "$(RED)❌ Ansible not installed$(RESET)" && exit 1)
+	@command -v ansible-vault >/dev/null || (echo "$(RED)❌ Ansible Vault not available$(RESET)" && exit 1)
+	@command -v kubectl >/dev/null || echo "$(YELLOW)⚠️  kubectl not available (will be configured after cluster deployment)$(RESET)"
+	@command -v helm >/dev/null || (echo "$(RED)❌ Helm not installed$(RESET)" && exit 1)
+	@echo "$(GREEN)✅ Prerequisites check complete$(RESET)"
 
 prepare: ## Interactive wizard to prepare infrastructure secrets and prerequisites
 	@chmod +x provisioning/lib/setup-wizard.sh
@@ -35,6 +43,9 @@ backup-secrets: ## Backup all critical secrets to an encrypted archive
 		echo "$(RED)❌ Ansible Vault password file not found. Run 'make prepare' first.$(RESET)"; \
 		exit 1; \
 	fi
+	@command -v kubectl >/dev/null || (echo "$(RED)❌ kubectl not installed$(RESET)" && exit 1)
+	@command -v gpg >/dev/null || (echo "$(RED)❌ GPG not installed$(RESET)" && exit 1)
+	@kubectl cluster-info >/dev/null 2>&1 || (echo "$(RED)❌ Cluster not accessible. Cannot backup sealed secrets$(RESET)" && exit 1)
 	@echo "$(CYAN)Auto-generating secure backup password...$(RESET)"
 	@BACKUP_PASSWORD=$$(openssl rand -base64 32); \
 	echo "$(YELLOW)Backup password: $$BACKUP_PASSWORD$(RESET)"; \
@@ -69,8 +80,19 @@ copy-kubeconfig: ## Copy kubeconfig from master node to local kubectl config
 	@if [ -f ~/.kube/k3s-master-config ]; then \
 		cp ~/.kube/k3s-master-config ~/.kube/config; \
 		echo "$(GREEN)✅ Kubeconfig copied to ~/.kube/config$(RESET)"; \
+		echo "$(CYAN)Testing cluster connectivity...$(RESET)"; \
+		if kubectl cluster-info >/dev/null 2>&1; then \
+			echo "$(GREEN)✅ Cluster is accessible$(RESET)"; \
+		else \
+			echo "$(YELLOW)⚠️  Cluster may still be starting up$(RESET)"; \
+		fi; \
 	else \
-		echo "$(RED)❌ Kubeconfig not found. Cluster deployment may have failed.$(RESET)"; \
+		echo "$(RED)❌ Kubeconfig not found at ~/.kube/k3s-master-config$(RESET)"; \
+		echo "$(YELLOW)This usually means:$(RESET)"; \
+		echo "  1. The k3s cluster hasn't been deployed yet (run 'make cluster')"; \
+		echo "  2. The cluster deployment failed"; \
+		echo "  3. You're running this before cluster setup"; \
+		echo "$(CYAN)💡 Correct sequence: make deploy-storage-server → make cluster → make copy-kubeconfig$(RESET)"; \
 		exit 1; \
 	fi
 
@@ -81,8 +103,8 @@ post-cluster-setup: ## Create sealed secrets for applications
 
 ##@ Infrastructure Deployment
 
-storage: check ## Setup K8s storage server
-	@echo "$(CYAN)Deploying K8s storage server...$(RESET)"
+deploy-storage-server: check ## Setup physical storage server for Kubernetes
+	@echo "$(CYAN)Deploying physical storage server...$(RESET)"
 	cd ansible && ansible-playbook playbooks/01-k8s-storage-setup.yml
 
 cluster: check ## Setup k3s cluster
@@ -105,7 +127,7 @@ dns-status: ## Check DNS server status and health
 		echo "$(RED)❌ DNS service is not running or storage node unreachable$(RESET)"; \
 	fi
 
-setup: storage cluster copy-kubeconfig install-sealed-secrets post-cluster-setup deploy-dns system-components setup-gitea-repos argocd ## Deploy complete Zero Touch Cluster infrastructure with GitOps
+setup: check deploy-storage-server cluster copy-kubeconfig install-sealed-secrets storage post-cluster-setup deploy-dns system-components setup-gitea-repos argocd ## Deploy complete Zero Touch Cluster infrastructure with GitOps
 	@echo "$(GREEN)✅ Complete Zero Touch Cluster infrastructure deployed!$(RESET)"
 	@echo "$(CYAN)🔐 Access credentials via Vaultwarden: make credentials$(RESET)"
 	@echo "$(CYAN)Access ArgoCD UI: kubectl port-forward svc/argocd-server -n argocd 8080:80$(RESET)"
@@ -117,7 +139,7 @@ setup: storage cluster copy-kubeconfig install-sealed-secrets post-cluster-setup
 
 ##@ System Components (Helm Charts)
 
-system-components: monitoring-stack storage-stack vaultwarden-stack gitea-stack ## Deploy all system components
+system-components: monitoring-stack gitea-stack ## Deploy all system components
 	@echo "$(GREEN)✅ All system components deployed$(RESET)"
 
 monitoring-stack: ## Deploy monitoring stack (Prometheus, Grafana, AlertManager)
@@ -135,30 +157,23 @@ monitoring-stack: ## Deploy monitoring stack (Prometheus, Grafana, AlertManager)
 		--wait --timeout 10m
 	@echo "$(GREEN)✅ Monitoring stack deployed$(RESET)"
 
-storage-stack: ## Deploy storage components (local-path + NFS hybrid)
+storage: ## Deploy storage components (Usage: make storage [NFS=false] [LONGHORN=true])
 	@echo "$(CYAN)Deploying storage stack...$(RESET)"
+	@command -v helm >/dev/null || (echo "$(RED)❌ Helm not installed$(RESET)" && exit 1)
+	@kubectl cluster-info >/dev/null 2>&1 || (echo "$(RED)❌ Cluster not accessible. Run 'make copy-kubeconfig' first$(RESET)" && exit 1)
+	@echo "$(CYAN)Options: NFS=$(if $(NFS),$(NFS),enabled), LONGHORN=$(if $(LONGHORN),$(LONGHORN),disabled)$(RESET)"
+	@if [ "$(LONGHORN)" = "true" ]; then \
+		echo "$(YELLOW)⚠️  Longhorn requires open-iscsi on all nodes$(RESET)"; \
+		echo "$(YELLOW)⚠️  Ensure nodes have been provisioned with Longhorn support$(RESET)"; \
+	fi
 	helm upgrade --install storage ./kubernetes/system/storage \
 		--namespace kube-system \
 		--values ./kubernetes/system/storage/values.yaml \
+		$(if $(filter false,$(NFS)),--set nfs.enabled=false) \
+		$(if $(filter true,$(LONGHORN)),--set longhorn.enabled=true) \
 		--wait --timeout 5m
-	@echo "$(GREEN)✅ Storage stack deployed (local-path + NFS)$(RESET)"
+	@echo "$(GREEN)✅ Storage stack deployed$(RESET)"
 
-vaultwarden-stack: ## Deploy Vaultwarden password manager for system credentials
-	@echo "$(CYAN)Deploying Vaultwarden credential manager...$(RESET)"
-	@if [ ! -f kubernetes/system/vaultwarden/values-secret.yaml ]; then \
-		echo "$(YELLOW)⚠️  Creating values-secret.yaml from template...$(RESET)"; \
-		cp kubernetes/system/vaultwarden/values-secret.yaml.template kubernetes/system/vaultwarden/values-secret.yaml; \
-		echo "$(RED)❗ Edit kubernetes/system/vaultwarden/values-secret.yaml with your sealed secrets$(RESET)"; \
-	fi
-	kubectl apply -f kubernetes/system/vaultwarden/values-secret.yaml
-	helm upgrade --install vaultwarden ./kubernetes/system/vaultwarden \
-		--namespace vaultwarden \
-		--create-namespace \
-		--values ./kubernetes/system/vaultwarden/values.yaml \
-		--wait --timeout 10m
-	@echo "$(GREEN)✅ Vaultwarden deployed$(RESET)"
-	@echo "$(CYAN)Access: http://vault.homelab.lan$(RESET)"
-	@echo "$(YELLOW)Get credentials: make show-credentials$(RESET)"
 
 gitea-stack: ## Deploy Gitea Git server for private workloads
 	@echo "$(CYAN)Deploying Gitea Git server...$(RESET)"
@@ -171,7 +186,8 @@ gitea-stack: ## Deploy Gitea Git server for private workloads
 	helm dependency update kubernetes/system/gitea/
 	@echo "$(CYAN)Installing Gitea (this may take 2-3 minutes)...$(RESET)"
 	helm upgrade --install gitea ./kubernetes/system/gitea \
-		--namespace gitea --create-namespace \
+		--namespace gitea \
+		--create-namespace \
 		--values ./kubernetes/system/gitea/values.yaml \
 		--wait --timeout 15m
 	@echo "$(GREEN)✅ Gitea Git server deployed$(RESET)"
@@ -184,28 +200,15 @@ setup-gitea-repos: ## Setup required Gitea repositories after deployment
 	@chmod +x provisioning/lib/setup-gitea-repos.sh
 	@./provisioning/lib/setup-gitea-repos.sh
 
-##@ Kubernetes (Legacy/Direct)
+##@ Storage Management
 
-deploy-storage: ## Verify storage provisioner (local-path included by default)
-	@echo "$(CYAN)Verifying storage - using local-path provisioner$(RESET)"
-	@kubectl get storageclass
-	@echo "$(GREEN)✅ Local storage ready$(RESET)"
-
-deploy-nfs: ## Deploy NFS storage provisioner (requires NFS enabled in Ansible)
-	@echo "$(CYAN)Deploying NFS storage provisioner...$(RESET)"
-	helm upgrade --install storage ./kubernetes/system/storage \
-		--namespace kube-system \
-		--values ./kubernetes/system/storage/values.yaml \
-		--set nfs.enabled=true \
-		--wait --timeout 5m
-	@echo "$(GREEN)✅ NFS provisioner deployed$(RESET)"
-	@echo "$(YELLOW)Note: Ensure NFS is enabled on storage node first$(RESET)"
-
-enable-nfs: ## Enable NFS storage (manual step)
-	@echo "$(YELLOW)To enable NFS, set 'nfs_enabled: true' in 'ansible/inventory/group_vars/all.yml' and re-run 'make infra'$(RESET)"
-
-disable-nfs: ## Disable NFS storage (manual step)
-	@echo "$(YELLOW)To disable NFS, set 'nfs_enabled: false' in 'ansible/inventory/group_vars/all.yml' and re-run 'make infra'$(RESET)"
+storage-status: ## Check storage deployment status and available storage classes
+	@echo "$(CYAN)Storage Classes:$(RESET)"
+	@kubectl get storageclass 2>/dev/null || echo "$(YELLOW)⚠️  kubectl not configured or cluster not accessible$(RESET)"
+	@echo ""
+	@echo "$(CYAN)Storage Pods:$(RESET)"
+	@kubectl get pods -n kube-system -l app.kubernetes.io/name=nfs-subdir-external-provisioner 2>/dev/null || echo "$(YELLOW)⚠️  NFS provisioner not deployed$(RESET)"
+	@kubectl get pods -n longhorn-system 2>/dev/null || echo "$(YELLOW)⚠️  Longhorn not deployed$(RESET)"
 
 longhorn-stack: ## Deploy Longhorn distributed storage (for 3+ node clusters)
 	@echo "$(CYAN)Deploying Longhorn distributed storage...$(RESET)"
@@ -221,13 +224,6 @@ longhorn-stack: ## Deploy Longhorn distributed storage (for 3+ node clusters)
 	@kubectl get pods -n longhorn-system 2>/dev/null || echo "$(YELLOW)Longhorn pods starting...$(RESET)"
 	@echo "$(CYAN)Access Longhorn UI: kubectl port-forward -n longhorn-system svc/longhorn-frontend 8080:80$(RESET)"
 
-enable-longhorn: ## Enable Longhorn storage (manual step)
-	@echo "$(YELLOW)To enable Longhorn, set 'longhorn_enabled: true' in 'ansible/inventory/group_vars/all.yml' and re-run 'make infra'$(RESET)"
-	@echo "$(YELLOW)Or deploy directly with: make longhorn-stack$(RESET)"
-
-disable-longhorn: ## Disable Longhorn storage (manual step)
-	@echo "$(YELLOW)To disable Longhorn, set 'longhorn_enabled: false' in 'ansible/inventory/group_vars/all.yml' and re-run 'make infra'$(RESET)"
-	@echo "$(RED)Warning: This will remove all Longhorn volumes and data!$(RESET)"
 
 longhorn-status: ## Check Longhorn deployment status
 	@echo "$(CYAN)Checking Longhorn status...$(RESET)"
@@ -245,72 +241,166 @@ longhorn-status: ## Check Longhorn deployment status
 
 ##@ Credential Management
 
-credentials: ## Open Vaultwarden credentials UI in browser
-	@echo "$(CYAN)Opening Vaultwarden credentials manager...$(RESET)"
-	@if kubectl get namespace vaultwarden >/dev/null 2>&1; then \
-		echo "$(GREEN)🌐 Access: http://vault.homelab.lan$(RESET)"; \
-		echo "$(CYAN)💡 Tip: All ZTC system credentials are stored in 'ZTC System Credentials'$(RESET)"; \
-		command -v xdg-open >/dev/null && xdg-open http://vault.homelab.lan 2>/dev/null || \
-		command -v open >/dev/null && open http://vault.homelab.lan 2>/dev/null || \
-		echo "$(YELLOW)Manual: Open http://vault.homelab.lan in your browser$(RESET)"; \
-	else \
-		echo "$(RED)❌ Vaultwarden not deployed$(RESET)"; \
-		echo "$(YELLOW)Deploy with: make vaultwarden-stack$(RESET)"; \
-	fi
+credentials: show-credentials ## Show system credentials (alias for show-credentials)
 
-show-credentials: ## Display Vaultwarden master credentials
-	@echo "$(CYAN)Vaultwarden Master Credentials:$(RESET)"
-	@if kubectl get secret -n vaultwarden vaultwarden-admin-secret >/dev/null 2>&1; then \
-		echo "$(GREEN)🌐 URL: http://vault.homelab.lan$(RESET)"; \
-		echo "$(GREEN)👤 Username: $$(kubectl get secret -n vaultwarden vaultwarden-admin-secret -o jsonpath='{.data.username}' | base64 -d)$(RESET)"; \
-		echo "$(GREEN)🔑 Password: $$(kubectl get secret -n vaultwarden vaultwarden-admin-secret -o jsonpath='{.data.password}' | base64 -d)$(RESET)"; \
+show-credentials: ## Show system credentials (Usage: make show-credentials [SERVICE=gitea|grafana|argocd])
+	@if [ -n "$(SERVICE)" ]; then \
+		case "$(SERVICE)" in \
+			gitea) \
+				echo "$(CYAN)🦊 Gitea (Git Server):$(RESET)"; \
+				if kubectl get secret -n gitea gitea-admin-secret >/dev/null 2>&1; then \
+					echo "  URL: http://gitea.homelab.lan"; \
+					echo "  Username: $$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.username}' | base64 -d)"; \
+					echo "  Password: $$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.password}' | base64 -d)"; \
+				else echo "  $(RED)❌ Not deployed$(RESET)"; fi ;; \
+			grafana) \
+				echo "$(CYAN)📊 Grafana (Monitoring):$(RESET)"; \
+				if kubectl get secret -n monitoring grafana-admin-secret >/dev/null 2>&1; then \
+					echo "  URL: http://grafana.homelab.lan"; \
+					echo "  Username: admin"; \
+					echo "  Password: $$(kubectl get secret -n monitoring grafana-admin-secret -o jsonpath='{.data.admin-password}' | base64 -d)"; \
+				else echo "  $(RED)❌ Not deployed$(RESET)"; fi ;; \
+			argocd) \
+				echo "$(CYAN)🚀 ArgoCD (GitOps):$(RESET)"; \
+				if kubectl get secret -n argocd argocd-initial-admin-secret >/dev/null 2>&1; then \
+					echo "  URL: http://argocd.homelab.lan"; \
+					echo "  Username: admin"; \
+					echo "  Password: $$(kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"; \
+				else echo "  $(RED)❌ Not deployed$(RESET)"; fi ;; \
+			*) echo "$(RED)❌ Unknown service: $(SERVICE)$(RESET)"; \
+			   echo "$(YELLOW)Available services: gitea, grafana, argocd$(RESET)" ;; \
+		esac; \
+	else \
+		echo "$(CYAN)ZTC System Service Credentials:$(RESET)"; \
 		echo ""; \
-		echo "$(CYAN)📝 All system service credentials are organized in Vaultwarden$(RESET)"; \
-	else \
-		echo "$(RED)❌ Vaultwarden credentials not found$(RESET)"; \
-		echo "$(YELLOW)Deploy with: make vaultwarden-stack$(RESET)"; \
+		echo "$(GREEN)📊 Grafana (Monitoring):$(RESET)"; \
+		if kubectl get secret -n monitoring grafana-admin-secret >/dev/null 2>&1; then \
+			echo "  URL: http://grafana.homelab.lan"; \
+			echo "  Username: admin"; \
+			echo "  Password: $$(kubectl get secret -n monitoring grafana-admin-secret -o jsonpath='{.data.admin-password}' | base64 -d)"; \
+		else echo "  $(RED)❌ Not deployed$(RESET)"; fi; \
+		echo ""; \
+		echo "$(GREEN)🦊 Gitea (Git Server):$(RESET)"; \
+		if kubectl get secret -n gitea gitea-admin-secret >/dev/null 2>&1; then \
+			echo "  URL: http://gitea.homelab.lan"; \
+			echo "  Username: $$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.username}' | base64 -d)"; \
+			echo "  Password: $$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.password}' | base64 -d)"; \
+		else echo "  $(RED)❌ Not deployed$(RESET)"; fi; \
+		echo ""; \
+		echo "$(GREEN)🚀 ArgoCD (GitOps):$(RESET)"; \
+		if kubectl get secret -n argocd argocd-initial-admin-secret >/dev/null 2>&1; then \
+			echo "  URL: http://argocd.homelab.lan"; \
+			echo "  Username: admin"; \
+			echo "  Password: $$(kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"; \
+		else echo "  $(RED)❌ Not deployed$(RESET)"; fi; \
+		echo ""; \
+		echo "$(CYAN)💡 Tip: Use 'make show-credentials SERVICE=<service>' for specific credentials$(RESET)"; \
+		echo "$(CYAN)💡 Show specific service: make show-credentials SERVICE=gitea$(RESET)"; \
 	fi
 
-show-passwords: ## Show all system service passwords (fallback CLI access)
-	@echo "$(CYAN)ZTC System Service Credentials:$(RESET)"
-	@echo ""
-	@echo "$(GREEN)🔐 Vaultwarden (Credential Manager):$(RESET)"
-	@if kubectl get secret -n vaultwarden vaultwarden-admin-secret >/dev/null 2>&1; then \
-		echo "  URL: http://vault.homelab.lan"; \
-		echo "  Username: $$(kubectl get secret -n vaultwarden vaultwarden-admin-secret -o jsonpath='{.data.username}' | base64 -d)"; \
-		echo "  Password: $$(kubectl get secret -n vaultwarden vaultwarden-admin-secret -o jsonpath='{.data.password}' | base64 -d)"; \
-	else \
-		echo "  $(RED)❌ Not deployed$(RESET)"; \
+show-password: ## Show password for specific service (Usage: make show-password SERVICE=gitea)
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "$(RED)❌ Usage: make show-password SERVICE=<service>$(RESET)"; \
+		echo "$(YELLOW)Available services: gitea, grafana, argocd$(RESET)"; \
+		exit 1; \
 	fi
-	@echo ""
-	@echo "$(GREEN)📊 Grafana (Monitoring):$(RESET)"
-	@if kubectl get secret -n monitoring grafana-admin-secret >/dev/null 2>&1; then \
-		echo "  URL: http://grafana.homelab.lan"; \
-		echo "  Username: admin"; \
-		echo "  Password: $$(kubectl get secret -n monitoring grafana-admin-secret -o jsonpath='{.data.admin-password}' | base64 -d)"; \
-	else \
-		echo "  $(RED)❌ Not deployed$(RESET)"; \
+	@case "$(SERVICE)" in \
+		gitea) \
+			if kubectl get secret -n gitea gitea-admin-secret >/dev/null 2>&1; then \
+				kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo; \
+			else echo "$(RED)❌ Gitea not deployed$(RESET)"; fi ;; \
+		grafana) \
+			if kubectl get secret -n monitoring grafana-admin-secret >/dev/null 2>&1; then \
+				kubectl get secret -n monitoring grafana-admin-secret -o jsonpath='{.data.admin-password}' | base64 -d; echo; \
+			else echo "$(RED)❌ Grafana not deployed$(RESET)"; fi ;; \
+		argocd) \
+			if kubectl get secret -n argocd argocd-initial-admin-secret >/dev/null 2>&1; then \
+				kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo; \
+			else echo "$(RED)❌ ArgoCD not deployed$(RESET)"; fi ;; \
+		*) echo "$(RED)❌ Unknown service: $(SERVICE)$(RESET)"; \
+		   echo "$(YELLOW)Available services: gitea, grafana, argocd$(RESET)" ;; \
+	esac
+
+copy-password: ## Copy password to clipboard (Usage: make copy-password SERVICE=gitea)
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "$(RED)❌ Usage: make copy-password SERVICE=<service>$(RESET)"; \
+		echo "$(YELLOW)Available services: gitea, grafana, argocd$(RESET)"; \
+		exit 1; \
 	fi
-	@echo ""
-	@echo "$(GREEN)🦊 Gitea (Git Server):$(RESET)"
-	@if kubectl get secret -n gitea gitea-admin-secret >/dev/null 2>&1; then \
-		echo "  URL: http://gitea.homelab.lan"; \
-		echo "  Username: $$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.username}' | base64 -d)"; \
-		echo "  Password: $$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.password}' | base64 -d)"; \
-	else \
-		echo "  $(RED)❌ Not deployed$(RESET)"; \
-	fi
-	@echo ""
-	@echo "$(GREEN)🚀 ArgoCD (GitOps):$(RESET)"
-	@if kubectl get secret -n argocd argocd-initial-admin-secret >/dev/null 2>&1; then \
-		echo "  URL: http://argocd.homelab.lan"; \
-		echo "  Username: admin"; \
-		echo "  Password: $$(kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"; \
-	else \
-		echo "  $(RED)❌ Not deployed$(RESET)"; \
-	fi
-	@echo ""
-	@echo "$(CYAN)💡 Tip: Use 'make credentials' to access the web UI$(RESET)"
+	@case "$(SERVICE)" in \
+		gitea) \
+			if kubectl get secret -n gitea gitea-admin-secret >/dev/null 2>&1; then \
+				if command -v pbcopy >/dev/null 2>&1; then \
+					kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.password}' | base64 -d | pbcopy; \
+					echo "$(GREEN)✅ Gitea password copied to clipboard$(RESET)"; \
+				elif command -v xclip >/dev/null 2>&1; then \
+					kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.password}' | base64 -d | xclip -selection clipboard; \
+					echo "$(GREEN)✅ Gitea password copied to clipboard$(RESET)"; \
+				else \
+					echo "$(YELLOW)⚠️  No clipboard tool available. Password:$(RESET)"; \
+					kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo; \
+				fi; \
+			else echo "$(RED)❌ Gitea not deployed$(RESET)"; fi ;; \
+		grafana) \
+			if kubectl get secret -n monitoring grafana-admin-secret >/dev/null 2>&1; then \
+				if command -v pbcopy >/dev/null 2>&1; then \
+					kubectl get secret -n monitoring grafana-admin-secret -o jsonpath='{.data.admin-password}' | base64 -d | pbcopy; \
+					echo "$(GREEN)✅ Grafana password copied to clipboard$(RESET)"; \
+				elif command -v xclip >/dev/null 2>&1; then \
+					kubectl get secret -n monitoring grafana-admin-secret -o jsonpath='{.data.admin-password}' | base64 -d | xclip -selection clipboard; \
+					echo "$(GREEN)✅ Grafana password copied to clipboard$(RESET)"; \
+				else \
+					echo "$(YELLOW)⚠️  No clipboard tool available. Password:$(RESET)"; \
+					kubectl get secret -n monitoring grafana-admin-secret -o jsonpath='{.data.admin-password}' | base64 -d; echo; \
+				fi; \
+			else echo "$(RED)❌ Grafana not deployed$(RESET)"; fi ;; \
+		argocd) \
+			if kubectl get secret -n argocd argocd-initial-admin-secret >/dev/null 2>&1; then \
+				if command -v pbcopy >/dev/null 2>&1; then \
+					kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d | pbcopy; \
+					echo "$(GREEN)✅ ArgoCD password copied to clipboard$(RESET)"; \
+				elif command -v xclip >/dev/null 2>&1; then \
+					kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d | xclip -selection clipboard; \
+					echo "$(GREEN)✅ ArgoCD password copied to clipboard$(RESET)"; \
+				else \
+					echo "$(YELLOW)⚠️  No clipboard tool available. Password:$(RESET)"; \
+					kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo; \
+				fi; \
+			else echo "$(RED)❌ ArgoCD not deployed$(RESET)"; fi ;; \
+		*) echo "$(RED)❌ Unknown service: $(SERVICE)$(RESET)"; \
+		   echo "$(YELLOW)Available services: gitea, grafana, argocd$(RESET)" ;; \
+	esac
+
+export-credentials: ## Export all credentials to file (Usage: make export-credentials [FILE=backup.txt])
+	@BACKUP_FILE="$${FILE:-ztc-credentials-$$(date +%Y%m%d-%H%M%S).txt}"; \
+	echo "$(CYAN)Exporting all credentials to $$BACKUP_FILE...$(RESET)"; \
+	{ \
+		echo "# Zero Touch Cluster Credentials Export"; \
+		echo "# Generated: $$(date)"; \
+		echo ""; \
+		echo "## Grafana (Monitoring)"; \
+		echo "URL: http://grafana.homelab.lan"; \
+		echo "Username: admin"; \
+		if kubectl get secret -n monitoring grafana-admin-secret >/dev/null 2>&1; then \
+			echo "Password: $$(kubectl get secret -n monitoring grafana-admin-secret -o jsonpath='{.data.admin-password}' | base64 -d)"; \
+		else echo "Password: [NOT DEPLOYED]"; fi; \
+		echo ""; \
+		echo "## Gitea (Git Server)"; \
+		echo "URL: http://gitea.homelab.lan"; \
+		if kubectl get secret -n gitea gitea-admin-secret >/dev/null 2>&1; then \
+			echo "Username: $$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.username}' | base64 -d)"; \
+			echo "Password: $$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.password}' | base64 -d)"; \
+		else echo "Username: [NOT DEPLOYED]"; echo "Password: [NOT DEPLOYED]"; fi; \
+		echo ""; \
+		echo "## ArgoCD (GitOps)"; \
+		echo "URL: http://argocd.homelab.lan"; \
+		echo "Username: admin"; \
+		if kubectl get secret -n argocd argocd-initial-admin-secret >/dev/null 2>&1; then \
+			echo "Password: $$(kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"; \
+		else echo "Password: [NOT DEPLOYED]"; fi; \
+	} > "$$BACKUP_FILE"; \
+	echo "$(GREEN)✅ Credentials exported to $$BACKUP_FILE$(RESET)"; \
+	echo "$(YELLOW)💡 Secure this file and store in a safe location$(RESET)"
 
 ##@ GitOps (ArgoCD)
 
@@ -345,16 +435,6 @@ install-sealed-secrets: ## Install Sealed Secrets controller
 	kubectl wait --for=condition=available deployment/sealed-secrets-controller -n kube-system --timeout=300s
 	@echo "$(GREEN)✅ Sealed Secrets controller installed$(RESET)"
 
-##@ Git Server (Gitea)
-
-gitea-admin-password: ## Get Gitea admin password
-	@echo "$(CYAN)Gitea admin credentials:$(RESET)"
-	@echo "Username: ztc-admin"
-	@echo -n "Password: "
-	@kubectl get secret -n gitea gitea-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "$(RED)❌ Gitea not deployed or secret not found$(RESET)"
-	@echo ""
-	@echo "$(CYAN)Access: http://gitea.homelab.lan$(RESET)"
-
 ##@ Private Workloads
 
 deploy-n8n: ## Deploy n8n workflow automation platform
@@ -372,6 +452,75 @@ deploy-vaultwarden: ## Deploy Vaultwarden password manager
 deploy-code-server: ## Deploy Code Server development environment
 	@$(call deploy_workload,code-server)
 
+deploy-gitea-runner: ## Deploy Gitea Actions CI/CD runner
+	@$(call deploy_workload,gitea-runner)
+
+##@ Custom Applications
+
+deploy-custom-app: ## Deploy custom application from ZTC registry (Usage: make deploy-custom-app APP_NAME=myapp [IMAGE_TAG=latest])
+	@if [ -z "$(APP_NAME)" ]; then \
+		echo "$(RED)❌ Usage: make deploy-custom-app APP_NAME=<name> [IMAGE_TAG=<tag>]$(RESET)"; \
+		echo "$(CYAN)Example: make deploy-custom-app APP_NAME=my-web-app IMAGE_TAG=v1.0.0$(RESET)"; \
+		exit 1; \
+	fi
+	@$(call deploy_custom_app,$(APP_NAME))
+
+##@ Container Registry
+
+registry-login: ## Login to ZTC container registry
+	@echo "$(CYAN)Logging into ZTC container registry...$(RESET)"
+	@if kubectl get secret -n gitea gitea-admin-secret >/dev/null 2>&1; then \
+		GITEA_USER=$$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.username}' | base64 -d); \
+		GITEA_PASSWORD=$$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.password}' | base64 -d); \
+		echo "$$GITEA_PASSWORD" | docker login gitea.homelab.lan:5000 -u "$$GITEA_USER" --password-stdin; \
+		echo "$(GREEN)✅ Logged into registry as $$GITEA_USER$(RESET)"; \
+	else \
+		echo "$(RED)❌ Gitea admin credentials not found$(RESET)"; \
+		exit 1; \
+	fi
+
+registry-info: ## Show ZTC container registry information
+	@echo "$(CYAN)ZTC Container Registry Information:$(RESET)"
+	@echo "  Registry URL: gitea.homelab.lan:5000"
+	@echo "  Web Interface: http://gitea.homelab.lan"
+	@if kubectl get secret -n gitea gitea-admin-secret >/dev/null 2>&1; then \
+		GITEA_USER=$$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.username}' | base64 -d); \
+		echo "  Username: $$GITEA_USER"; \
+		echo "  $(YELLOW)Use 'make registry-login' to authenticate Docker client$(RESET)"; \
+	else \
+		echo "  $(RED)❌ Gitea not deployed$(RESET)"; \
+	fi
+
+##@ Workload Bundles
+
+deploy-bundle-starter: ## Deploy starter bundle - essential homelab services
+	@chmod +x provisioning/lib/deploy-bundle.sh
+	@./provisioning/lib/deploy-bundle.sh starter
+
+deploy-bundle-monitoring: ## Deploy monitoring bundle - comprehensive monitoring solution
+	@chmod +x provisioning/lib/deploy-bundle.sh
+	@./provisioning/lib/deploy-bundle.sh monitoring
+
+deploy-bundle-productivity: ## Deploy productivity bundle - development and automation tools
+	@chmod +x provisioning/lib/deploy-bundle.sh
+	@./provisioning/lib/deploy-bundle.sh productivity
+
+deploy-bundle-security: ## Deploy security bundle - password management and security tools
+	@chmod +x provisioning/lib/deploy-bundle.sh
+	@./provisioning/lib/deploy-bundle.sh security
+
+deploy-bundle-development: ## Deploy development bundle - complete CI/CD and development toolkit
+	@chmod +x provisioning/lib/deploy-bundle.sh
+	@./provisioning/lib/deploy-bundle.sh development
+
+list-bundles: ## List all available workload bundles
+	@chmod +x provisioning/lib/deploy-bundle.sh
+	@./provisioning/lib/deploy-bundle.sh --list
+
+bundle-status: ## Show deployment status of all bundles
+	@chmod +x provisioning/lib/deploy-bundle.sh
+	@./provisioning/lib/deploy-bundle.sh --status
+
 ##@ Workload Undeployment
 
 undeploy-workload: ## Undeploy specific workload (usage: make undeploy-workload WORKLOAD=n8n)
@@ -384,20 +533,6 @@ undeploy-workload: ## Undeploy specific workload (usage: make undeploy-workload 
 	@chmod +x provisioning/lib/undeploy-workload.sh
 	@./provisioning/lib/undeploy-workload.sh $(WORKLOAD)
 
-undeploy-n8n: ## Undeploy n8n workflow automation platform
-	@$(MAKE) undeploy-workload WORKLOAD=n8n
-
-undeploy-uptime-kuma: ## Undeploy Uptime Kuma service monitoring
-	@$(MAKE) undeploy-workload WORKLOAD=uptime-kuma
-
-undeploy-homepage: ## Undeploy Homepage service dashboard
-	@$(MAKE) undeploy-workload WORKLOAD=homepage
-
-undeploy-vaultwarden: ## Undeploy Vaultwarden password manager
-	@$(MAKE) undeploy-workload WORKLOAD=vaultwarden
-
-undeploy-code-server: ## Undeploy Code Server development environment
-	@$(MAKE) undeploy-workload WORKLOAD=code-server
 
 # Helper function to deploy workloads with override support
 define deploy_workload
@@ -412,6 +547,26 @@ define deploy_workload
 	$(if $(ADMIN_TOKEN),export OVERRIDE_ADMIN_TOKEN="$(ADMIN_TOKEN)";) \
 	$(if $(PASSWORD),export OVERRIDE_PASSWORD="$(PASSWORD)";) \
 	./provisioning/lib/deploy-workload.sh $(1)
+endef
+
+# Helper function to deploy custom applications with app-specific overrides
+define deploy_custom_app
+	$(if $(IMAGE_TAG),export OVERRIDE_IMAGE_TAG="$(IMAGE_TAG)";) \
+	$(if $(IMAGE_REGISTRY),export OVERRIDE_IMAGE_REGISTRY="$(IMAGE_REGISTRY)";) \
+	$(if $(IMAGE_REPOSITORY),export OVERRIDE_IMAGE_REPOSITORY="$(IMAGE_REPOSITORY)";) \
+	$(if $(GITEA_USER),export OVERRIDE_GITEA_USER="$(GITEA_USER)";) \
+	$(if $(PORT),export OVERRIDE_PORT="$(PORT)";) \
+	$(if $(REPLICAS),export OVERRIDE_REPLICAS="$(REPLICAS)";) \
+	$(if $(STORAGE_ENABLED),export OVERRIDE_STORAGE_ENABLED="$(STORAGE_ENABLED)";) \
+	$(if $(STORAGE_SIZE),export OVERRIDE_STORAGE_SIZE="$(STORAGE_SIZE)";) \
+	$(if $(STORAGE_CLASS),export OVERRIDE_STORAGE_CLASS="$(STORAGE_CLASS)";) \
+	$(if $(HOSTNAME),export OVERRIDE_HOSTNAME="$(HOSTNAME)";) \
+	$(if $(MEMORY_REQUEST),export OVERRIDE_MEMORY_REQUEST="$(MEMORY_REQUEST)";) \
+	$(if $(MEMORY_LIMIT),export OVERRIDE_MEMORY_LIMIT="$(MEMORY_LIMIT)";) \
+	$(if $(CPU_REQUEST),export OVERRIDE_CPU_REQUEST="$(CPU_REQUEST)";) \
+	$(if $(CPU_LIMIT),export OVERRIDE_CPU_LIMIT="$(CPU_LIMIT)";) \
+	export OVERRIDE_APP_NAME="$(1)"; \
+	./provisioning/lib/deploy-workload.sh custom-app
 endef
 
 list-workloads: ## List all deployed workloads
@@ -628,108 +783,59 @@ logs: ## Show cluster logs (kubectl logs)
 ##@ Help
 
 help: ## Display this help
-	@echo "Zero Touch Cluster - Kubernetes Infrastructure Automation"
+	@echo "$(CYAN)Zero Touch Cluster - Kubernetes Infrastructure Automation$(RESET)"
 	@echo ""
-	@echo "Streamlined Setup (Recommended):"
-	@echo "  make prepare    # Create infrastructure secrets (pre-cluster)"
-	@echo "  make setup      # Deploy complete infrastructure (storage + cluster + apps)"
+	@echo "$(GREEN)🚀 Quick Start:$(RESET)"
+	@echo "  make check      # Check prerequisites"
+	@echo "  make prepare    # Create infrastructure secrets"
+	@echo "  make setup      # Deploy complete infrastructure"
 	@echo ""
-	@echo "Quick Start (Autoinstall):"
-	@echo "  make prepare                                                        # Create secrets"
-	@echo "  make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-master IP_OCTET=10  # Create USB"
-	@echo "  make setup                                                          # Deploy after nodes boot"
+	@echo "$(GREEN)📋 Common Operations:$(RESET)"
+	@echo "  make status             # Check cluster health"
+	@echo "  make credentials        # Open credential manager UI"
+	@echo "  make show-credentials   # Show all service credentials"
+	@echo "  make storage            # Deploy/update storage"
+	@echo "  make backup-secrets     # Create encrypted backup"
 	@echo ""
-	@echo "Main Commands:"
-	@echo "  prepare         Create infrastructure secrets and check prerequisites"
-	@echo "  setup           Deploy complete Zero Touch Cluster infrastructure (recommended)"
+	@echo "$(GREEN)🏗️  Infrastructure Components:$(RESET)"
+	@echo "  make deploy-storage-server   # Setup physical storage server"
+	@echo "  make storage                 # Deploy K8s storage (local-path + NFS)"
+	@echo "  make storage NFS=false       # Deploy storage without NFS"
+	@echo "  make storage LONGHORN=true   # Deploy storage with Longhorn"
+	@echo "  make storage-status          # Check storage deployment"
+	@echo "  make monitoring-stack        # Deploy monitoring (Prometheus, Grafana)"
+	@echo "  make gitea-stack             # Deploy Git server"
 	@echo ""
-	@echo "Infrastructure Components:"
-	@echo "  storage               Setup K8s storage server"
-	@echo "  cluster               Setup k3s cluster"
-	@echo "  deploy-dns            Deploy DNS server for homelab services"
-	@echo "  dns-status            Check DNS server status and health"
-	@echo "  copy-kubeconfig       Copy kubeconfig from master to local kubectl"
-	@echo "  post-cluster-setup    Create application sealed secrets"
-	@echo "  check                 Check prerequisites and system readiness"
+	@echo "$(GREEN)📱 Private Workloads:$(RESET)"
+	@echo "  make deploy-n8n              # Deploy workflow automation"
+	@echo "  make deploy-uptime-kuma      # Deploy service monitoring"
+	@echo "  make deploy-homepage         # Deploy service dashboard"
+	@echo "  make deploy-code-server      # Deploy VS Code in browser"
+	@echo "  make undeploy-workload WORKLOAD=n8n  # Remove workload"
+	@echo "  make list-workloads          # List deployed workloads"
 	@echo ""
-	@echo "System Components (Helm):"
-	@echo "  system-components       Deploy all system components"
-	@echo "  monitoring-stack        Deploy monitoring (Prometheus, Grafana)"
-	@echo "  storage-stack           Deploy hybrid storage (local-path + NFS)"
-	@echo "  vaultwarden-stack       Deploy Vaultwarden credential manager"
-	@echo "  longhorn-stack          Deploy Longhorn distributed storage"
-	@echo "  gitea-stack             Deploy Gitea Git server for private workloads"
-	@echo "  setup-gitea-repos       Setup required repositories after Gitea deployment"
-	@echo ""
-	@echo "Credential Management:"
-	@echo "  credentials             Open Vaultwarden credentials UI in browser"
-	@echo "  show-credentials        Display Vaultwarden master credentials"
-	@echo "  show-passwords          Show all system service passwords (CLI)"
-	@echo ""
-	@echo "Private Workloads:"
-	@echo "  deploy-n8n              Deploy n8n workflow automation platform"
-	@echo "  deploy-uptime-kuma      Deploy Uptime Kuma service monitoring"
-	@echo "  deploy-homepage         Deploy Homepage service dashboard"
-	@echo "  deploy-vaultwarden      Deploy Vaultwarden password manager"
-	@echo "  deploy-code-server      Deploy Code Server development environment"
-	@echo "  list-workloads          List all deployed workloads"
-	@echo "  workload-status         Check specific workload status"
-	@echo ""
-	@echo "Workload Undeployment:"
-	@echo "  undeploy-workload       Undeploy specific workload (usage: WORKLOAD=name)"
-	@echo "  undeploy-n8n            Undeploy n8n workflow automation platform"
-	@echo "  undeploy-uptime-kuma    Undeploy Uptime Kuma service monitoring"
-	@echo "  undeploy-homepage       Undeploy Homepage service dashboard"
-	@echo "  undeploy-vaultwarden    Undeploy Vaultwarden password manager"
-	@echo "  undeploy-code-server    Undeploy Code Server development environment"
-	@echo ""
-	@echo "Workload Customization:"
-	@echo "  make deploy-n8n STORAGE_SIZE=10Gi HOSTNAME=n8n.homelab.lan"
-	@echo "  make deploy-vaultwarden MEMORY_LIMIT=256Mi IMAGE_TAG=1.31.0"
-	@echo "  Available overrides: STORAGE_SIZE, STORAGE_CLASS, HOSTNAME, IMAGE_TAG,"
-	@echo "                      MEMORY_REQUEST, MEMORY_LIMIT, CPU_REQUEST, CPU_LIMIT"
-	@echo ""
-	@echo "Git Server (Gitea):"
-	@echo "  gitea-admin-password    Get Gitea admin credentials"
-	@echo ""
-	@echo "GitOps (ArgoCD):"
-	@echo "  argocd          Install and configure ArgoCD"
-	@echo "  argocd-apps     Deploy ArgoCD applications"
-	@echo "  gitops-status   Check GitOps application status"
-	@echo "  gitops-sync     Force sync all applications"
-	@echo ""
-	@echo "Kubernetes (Legacy):"
-	@echo "  deploy-storage  Deploy storage provisioner"
-	@echo "  deploy-nfs      Deploy NFS storage provisioner"
-	@echo "  enable-nfs      Enable NFS storage"
-	@echo "  disable-nfs     Disable NFS storage"
-	@echo "  enable-longhorn Enable Longhorn storage"
-	@echo "  disable-longhorn Disable Longhorn storage"
-	@echo "  longhorn-status Check Longhorn deployment status"
-	@echo ""
-	@echo "Provisioning:"
-	@echo "  autoinstall-usb         Create unattended installation USB"
-	@echo "  cidata-iso              Create only cloud-init ISO (no USB required)"
-	@echo "  cidata-usb              Create cidata ISO and write to USB (streamlined)"
-	@echo "  usb-list                List available USB devices"
-	@echo ""
-	@echo "Node Management:"
-	@echo "  restart-node    Restart a specific node"
-	@echo "  drain-node      Drain a node for maintenance"
-	@echo "  uncordon-node   Uncordon a node after maintenance"
-	@echo ""
-	@echo "Development:"
-	@echo "  lint            Lint Ansible playbooks and YAML files"
-	@echo "  validate        Validate Kubernetes manifests"
-	@echo "  teardown        ⚠️  DESTRUCTIVE: Complete cluster teardown for development"
-	@echo ""
-	@echo "Utilities:"
-	@echo "  status          Check cluster status"
-	@echo "  ping            Test connectivity to all nodes"
-	@echo "  logs            Show available log commands"
-	@echo ""
-	@echo "Examples:"
+	@echo "$(GREEN)💿 USB Provisioning:$(RESET)"
 	@echo "  make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-master IP_OCTET=10"
-	@echo "  make autoinstall-usb DEVICE=/dev/sdb  # Interactive mode"
-	@echo "  make restart-node NODE=k3s-worker-01"
-	@echo "  make drain-node NODE=k3s-master"
+	@echo "  make cidata-usb DEVICE=/dev/sdc HOSTNAME=k3s-worker-01 IP_OCTET=11"
+	@echo "  make usb-list                # List available USB devices"
+	@echo ""
+	@echo "$(GREEN)🔧 GitOps (ArgoCD):$(RESET)"
+	@echo "  make argocd          # Install ArgoCD"
+	@echo "  make gitops-status   # Check application status"
+	@echo "  make gitops-sync     # Force sync applications"
+	@echo ""
+	@echo "$(GREEN)🔧 Development:$(RESET)"
+	@echo "  make lint            # Lint code and configurations"
+	@echo "  make validate        # Validate Kubernetes manifests"
+	@echo "  make teardown        # ⚠️  DESTRUCTIVE: Reset everything"
+	@echo ""
+	@echo "$(GREEN)🎛️  Advanced:$(RESET)"
+	@echo "  make longhorn-stack          # Deploy distributed storage"
+	@echo "  make deploy-dns              # Deploy DNS server"
+	@echo "  make ping                    # Test node connectivity"
+	@echo "  make restart-node NODE=name  # Restart specific node"
+	@echo ""
+	@echo "$(YELLOW)💡 Examples:$(RESET)"
+	@echo "  make show-credentials SERVICE=gitea   # Show specific service"
+	@echo "  make deploy-n8n STORAGE_SIZE=5Gi      # Deploy with custom storage"
+	@echo "  make storage NFS=false LONGHORN=true  # Custom storage configuration"

@@ -1,14 +1,16 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: vaultwarden-ingress
+  name: $APP_NAME
   namespace: $WORKLOAD_NAMESPACE
   labels:
-    app: vaultwarden
-    app.kubernetes.io/name: vaultwarden
+    app: $APP_NAME
+    app.kubernetes.io/name: $APP_NAME
     app.kubernetes.io/part-of: ztc-workloads
+    ztc.homelab/custom-app: "true"
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.rule: "Host(`$HOSTNAME`)"
 spec:
   ingressClassName: traefik
   rules:
@@ -19,6 +21,6 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: vaultwarden-service
+            name: $APP_NAME
             port:
               number: 80

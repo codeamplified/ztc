@@ -1,0 +1,42 @@
+metadata:
+  name: "monitoring"
+  description: "Complete homelab monitoring and dashboard solution"
+  category: "essential"
+  tags: ["monitoring", "dashboard", "homelab", "essential"]
+  
+workloads:
+  - name: "uptime-kuma"
+    priority: 1
+    description: "Service health monitoring and status pages"
+    overrides:
+      STORAGE_CLASS: "nfs-client"
+      MEMORY_LIMIT: "128Mi"
+      
+  - name: "homepage"  
+    priority: 2
+    description: "Beautiful service dashboard and bookmarks"
+    overrides:
+      HOSTNAME: "home.homelab.lan"
+      STORAGE_CLASS: "local-path"
+
+documentation:
+  summary: "Deploys comprehensive service monitoring and organization tools"
+  use_case: "Perfect for homelab operators who want to monitor service health and organize access to all their services"
+  access_urls:
+    - "http://status.homelab.lan - Service monitoring and uptime tracking"
+    - "http://home.homelab.lan - Service dashboard and bookmarks"
+  post_install:
+    - "Configure Uptime Kuma to monitor your essential services"
+    - "Customize Homepage with your service links and bookmarks"
+    - "Both services include persistent storage for configuration"
+  
+resource_requirements:
+  total_memory: "192Mi"
+  total_cpu: "100m"  
+  total_storage: "3Gi"
+  
+benefits:
+  - "24/7 monitoring of all homelab services"
+  - "Beautiful visual dashboard for family and guests"
+  - "Status pages for communicating service availability"
+  - "Persistent configuration survives cluster restarts"

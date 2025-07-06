@@ -69,34 +69,7 @@ GREEN "✅ Gitea admin secret created."
 kubectl apply -f kubernetes/system/gitea/values-secret.yaml
 GREEN "✅ Gitea sealed secret applied to cluster."
 
-# 3. Generate Vaultwarden Admin Secret
-GREEN "\n--- Creating Vaultwarden Admin Secret ---"
-VAULTWARDEN_ADMIN_USERNAME="ztc-admin"
-VAULTWARDEN_ADMIN_PASSWORD=$(openssl rand -base64 32)
-VAULTWARDEN_ADMIN_TOKEN=$(openssl rand -base64 48)
-YELLOW "Generated Vaultwarden admin username: $VAULTWARDEN_ADMIN_USERNAME"
-YELLOW "Generated Vaultwarden admin password: $VAULTWARDEN_ADMIN_PASSWORD"
-YELLOW "Generated Vaultwarden admin token: $VAULTWARDEN_ADMIN_TOKEN"
-
-# Create vaultwarden namespace if it doesn't exist
-kubectl create namespace vaultwarden --dry-run=client -o yaml | kubectl apply -f -
-
-kubectl create secret generic vaultwarden-admin-secret \
-  --from-literal=username="$VAULTWARDEN_ADMIN_USERNAME" \
-  --from-literal=password="$VAULTWARDEN_ADMIN_PASSWORD" \
-  --from-literal=admin-token="$VAULTWARDEN_ADMIN_TOKEN" \
-  --namespace=vaultwarden \
-  --dry-run=client -o yaml > /tmp/vaultwarden-admin-secret.yaml
-
-kubeseal --format=yaml < /tmp/vaultwarden-admin-secret.yaml > kubernetes/system/vaultwarden/values-secret.yaml
-rm /tmp/vaultwarden-admin-secret.yaml
-GREEN "✅ Vaultwarden admin secret created."
-
-# Apply Vaultwarden sealed secret to cluster
-kubectl apply -f kubernetes/system/vaultwarden/values-secret.yaml
-GREEN "✅ Vaultwarden sealed secret applied to cluster."
-
-# 4. Generate ArgoCD Repository Credentials for Gitea
+# 3. Generate ArgoCD Repository Credentials for Gitea
 GREEN "\n--- Creating ArgoCD Repository Credentials ---"
 CYAN "Creating repository credentials for ArgoCD to access Gitea..."
 
@@ -131,7 +104,6 @@ CYAN "Verifying sealed secrets were processed..."
 for i in {1..12}; do
     if kubectl get secret grafana-admin-credentials -n monitoring >/dev/null 2>&1 && \
        kubectl get secret gitea-admin-secret -n gitea >/dev/null 2>&1 && \
-       kubectl get secret vaultwarden-admin-secret -n vaultwarden >/dev/null 2>&1 && \
        kubectl get secret gitea-repo-credentials -n argocd >/dev/null 2>&1; then
         GREEN "✅ All sealed secrets processed and ready."
         break
@@ -148,32 +120,27 @@ done
 # Note: ArgoCD repository credentials created for workloads repository access
 # Workloads repository will be created automatically during post-cluster setup
 
-# 5. Display Vaultwarden Master Credentials
+# 3. Display Generated Credentials
 GREEN "\n--- Credential Management Setup Complete ---"
-CYAN "🔐 ZTC now uses Vaultwarden for secure credential management!"
+CYAN "🔐 ZTC uses Sealed Secrets for secure credential management!"
 echo
-GREEN "=== VAULTWARDEN MASTER CREDENTIALS ==="
-GREEN "🌐 URL: http://vault.homelab.lan"
-GREEN "👤 Username: $VAULTWARDEN_ADMIN_USERNAME"
-GREEN "🔑 Password: $VAULTWARDEN_ADMIN_PASSWORD"
-echo
-CYAN "📝 All system service credentials are automatically organized in Vaultwarden:"
+GREEN "=== SYSTEM SERVICE CREDENTIALS ==="
+CYAN "📝 All system service credentials are encrypted via Sealed Secrets:"
 CYAN "   • Grafana (Monitoring) - admin / $GRAFANA_PASSWORD"
 CYAN "   • Gitea (Git Server) - ztc-admin / $GITEA_ADMIN_PASSWORD"
 CYAN "   • ArgoCD (GitOps) - admin / (dynamic password)"
 echo
-YELLOW "💡 NEXT STEPS:"
-YELLOW "1. Access Vaultwarden at http://vault.homelab.lan after 'make infra'"
-YELLOW "2. All service credentials will be auto-populated during deployment"
-YELLOW "3. Use 'make credentials' to open Vaultwarden UI anytime"
-YELLOW "4. Use 'make show-passwords' for CLI access to all credentials"
+YELLOW "💡 ACCESS CREDENTIALS:"
+YELLOW "1. View all credentials: make show-credentials"
+YELLOW "2. View specific service: make show-credentials SERVICE=gitea"
+YELLOW "3. All credentials are encrypted at rest via Sealed Secrets"
 echo
 GREEN "✅ Secure credential management configured!"
-YELLOW "No more plaintext credential files - everything encrypted in Vaultwarden!"
+YELLOW "All credentials encrypted and managed via Kubernetes Sealed Secrets!"
 
 GREEN "\n--- Post-cluster Setup Complete! ---"
 GREEN "All application secrets created successfully."
 echo
-CYAN "Next: System components (including Vaultwarden) will be deployed."
-CYAN "Credential auto-population will occur during Vaultwarden deployment."
-CYAN "Workload deployments will be ready after 'make infra' completes."
+CYAN "Next: System components will be deployed."
+CYAN "Use 'make show-credentials' to access all service credentials."
+CYAN "Workload deployments will be ready after 'make setup' completes."

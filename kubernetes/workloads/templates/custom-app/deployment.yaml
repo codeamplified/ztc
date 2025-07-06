@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: $APP_NAME
+  namespace: $WORKLOAD_NAMESPACE
+  labels:
+    app: $APP_NAME
+    app.kubernetes.io/name: $APP_NAME
+    app.kubernetes.io/part-of: ztc-workloads
+    ztc.homelab/custom-app: "true"
+spec:
+  replicas: $REPLICAS
+  selector:
+    matchLabels:
+      app: $APP_NAME
+  template:
+    metadata:
+      labels:
+        app: $APP_NAME
+    spec:
+      securityContext:
+        fsGroup: $RUN_AS_GROUP
+        runAsUser: $RUN_AS_USER
+        runAsGroup: $RUN_AS_GROUP
+        runAsNonRoot: true
+      imagePullSecrets:
+      - name: ztc-registry-auth
+      containers:
+      - name: $APP_NAME
+        image: $IMAGE_REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG
+        ports:
+        - containerPort: $PORT
+          name: http
+          protocol: TCP
+        env:
+        # Dynamic environment variables from template
+        $ENV_VARS_YAML
+        resources:
+          requests:
+            memory: $MEMORY_REQUEST
+            cpu: $CPU_REQUEST
+          limits:
+            memory: $MEMORY_LIMIT
+            cpu: $CPU_LIMIT
+        # Health checks (conditional)
+        $HEALTH_CHECKS_YAML
+        # Volume mounts (conditional)
+        $VOLUME_MOUNTS_YAML
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: $READ_ONLY_ROOT_FILESYSTEM
+          capabilities:
+            drop:
+            - ALL
+      # Volumes (conditional)
+      $VOLUMES_YAML

@@ -1,0 +1,68 @@
+metadata:
+  name: "development"
+  description: "Complete CI/CD and development toolkit for custom applications"
+  category: "development"
+  tags: ["development", "ci-cd", "docker", "automation", "productivity"]
+  
+workloads:
+  - name: "gitea-runner"
+    priority: 1
+    description: "CI/CD runners for automated container builds"
+    overrides:
+      RUNNER_COUNT: "2"
+      STORAGE_CLASS: "local-path"
+      STORAGE_SIZE: "10Gi"
+      MEMORY_LIMIT: "1Gi"
+      
+  - name: "code-server"
+    priority: 2
+    description: "VS Code development environment in browser"
+    overrides:
+      STORAGE_CLASS: "nfs-client"
+      STORAGE_SIZE: "20Gi"  # More space for development projects
+      MEMORY_LIMIT: "512Mi"
+      HOSTNAME: "code.homelab.lan"
+      
+  - name: "n8n"  
+    priority: 3
+    description: "Workflow automation and integration platform"
+    overrides:
+      HOSTNAME: "automation.homelab.lan"
+      STORAGE_CLASS: "nfs-client"  
+      MEMORY_LIMIT: "512Mi"
+      STORAGE_SIZE: "5Gi"
+
+documentation:
+  summary: "Deploys complete development and CI/CD infrastructure for custom application development"
+  use_case: "Ideal for developers who want to build, test, and deploy custom applications within ZTC infrastructure"
+  access_urls:
+    - "http://gitea.homelab.lan - Git server with container registry"
+    - "http://code.homelab.lan - VS Code development environment"
+    - "http://automation.homelab.lan - Workflow automation platform"
+    - "gitea.homelab.lan:5000 - Container registry endpoint"
+  post_install:
+    - "Clone or create projects in Gitea git server"
+    - "Use Code Server for browser-based development"
+    - "Add .gitea/workflows/build.yml for automated builds"
+    - "Deploy custom apps with: make deploy-custom-app APP_NAME=myapp"
+    - "Registry available at gitea.homelab.lan:5000 for container images"
+    - "Create automation workflows with n8n for DevOps tasks"
+  
+resource_requirements:
+  total_memory: "3Gi"
+  total_cpu: "800m"  
+  total_storage: "35Gi"
+  
+benefits:
+  - "Complete development lifecycle within ZTC"
+  - "Automated CI/CD with Gitea Actions"
+  - "Self-hosted container registry"
+  - "Browser-based development environment"
+  - "GitOps deployment through ArgoCD"
+  - "Zero external dependencies"
+  - "Integrated with ZTC infrastructure"
+  
+workflow:
+  - "Code → Push to Gitea → Auto-build → Registry → Deploy → Live App"
+  - "All managed through ArgoCD GitOps"
+  - "Development tools accessible from any device"

@@ -1,0 +1,51 @@
+name: DCO Check
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  dco-check:
+    runs-on: ubuntu-latest
+    name: Check Developer Certificate of Origin
+    
+    steps:
+    - name: Get PR Commits
+      id: get-commits
+      uses: tim-actions/get-pr-commits@master
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: DCO Check
+      uses: tim-actions/dco@master
+      with:
+        commits: ${{ steps.get-commits.outputs.commits }}
+
+    - name: Comment on DCO failure
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `❌ **DCO Check Failed**
+            
+            This pull request contains commits that are not signed off. All commits must include a Developer Certificate of Origin (DCO) signature.
+            
+            **To fix this:**
+            1. Sign your commits using \`git commit -s\`
+            2. For existing commits, you can amend them: \`git commit --amend -s\`
+            3. Force push your branch: \`git push --force-with-lease\`
+            
+            **Why DCO?**
+            DCO ensures you have the legal right to contribute your code under our Apache 2.0 license. Learn more in our [Contributing Guide](../blob/main/CONTRIBUTING.md#developer-certificate-of-origin-dco).
+            
+            **Example:**
+            \`\`\`bash
+            git commit -s -m "feat(ansible): add support for custom storage classes"
+            \`\`\`
+            
+            This adds a "Signed-off-by" line to your commit message automatically.`
+          })

@@ -1,0 +1,46 @@
+metadata:
+  name: "productivity"
+  description: "Complete development and automation toolkit"
+  category: "development"
+  tags: ["development", "automation", "productivity", "devops"]
+  
+workloads:
+  - name: "code-server"
+    priority: 1
+    description: "VS Code development environment in browser"
+    overrides:
+      STORAGE_CLASS: "nfs-client"
+      MEMORY_LIMIT: "512Mi"
+      STORAGE_SIZE: "10Gi"
+      
+  - name: "n8n"  
+    priority: 2
+    description: "Workflow automation and integration platform"
+    overrides:
+      HOSTNAME: "automation.homelab.lan"
+      STORAGE_CLASS: "nfs-client"  
+      MEMORY_LIMIT: "512Mi"
+
+documentation:
+  summary: "Deploys complete development environment with automation capabilities"
+  use_case: "Ideal for developers, DevOps engineers, and automation enthusiasts who want a full development stack"
+  access_urls:
+    - "http://code.homelab.lan - VS Code development environment"
+    - "http://automation.homelab.lan - Workflow automation platform"
+  post_install:
+    - "Access VS Code through your browser for development"
+    - "Install extensions and configure your development environment"
+    - "Create automated workflows in n8n for homelab tasks"
+    - "Integrate services using n8n's visual workflow builder"
+  
+resource_requirements:
+  total_memory: "1Gi"
+  total_cpu: "300m"  
+  total_storage: "15Gi"
+  
+benefits:
+  - "Full development environment accessible from any device"
+  - "Powerful automation capabilities for homelab workflows"
+  - "Visual workflow builder requires no coding"
+  - "Persistent storage for code projects and configurations"
+  - "Integrates with Git, APIs, databases, and homelab services"

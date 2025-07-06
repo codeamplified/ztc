@@ -13,7 +13,6 @@ ansible/inventory/secrets.yml
 # Temporary secret files created during setup/development
 *-secret-temp.yaml
 sealed-secrets-key*.yaml
-credentials.txt
 
 # kubeseal temporary files
 kubeseal-*.yaml

@@ -1,0 +1,46 @@
+metadata:
+  name: "starter"
+  description: "Essential homelab starter pack - monitoring and organization"
+  category: "essential"
+  tags: ["starter", "beginner", "essential", "monitoring", "dashboard"]
+  
+workloads:
+  - name: "homepage"
+    priority: 1
+    description: "Service dashboard for easy access to all homelab services"
+    overrides:
+      HOSTNAME: "home.homelab.lan"
+      STORAGE_CLASS: "local-path"
+      MEMORY_LIMIT: "64Mi"
+      
+  - name: "uptime-kuma"  
+    priority: 2
+    description: "Monitor service health and create status pages"
+    overrides:
+      HOSTNAME: "status.homelab.lan"
+      STORAGE_CLASS: "local-path"
+      MEMORY_LIMIT: "128Mi"
+
+documentation:
+  summary: "Perfect first deployment for new ZTC users - provides essential monitoring and organization"
+  use_case: "Ideal for beginners who want immediate value from their homelab with minimal resource usage"
+  access_urls:
+    - "http://home.homelab.lan - Service dashboard and bookmarks"
+    - "http://status.homelab.lan - Service health monitoring"
+  post_install:
+    - "Add your service bookmarks to Homepage for easy access"
+    - "Configure Uptime Kuma to monitor your essential services"
+    - "Both services use minimal resources - perfect for learning"
+    - "Great foundation before adding more advanced workloads"
+  
+resource_requirements:
+  total_memory: "192Mi"
+  total_cpu: "75m"  
+  total_storage: "2Gi"
+  
+benefits:
+  - "Minimal resource usage - perfect for small clusters"
+  - "Immediate visibility into homelab services"
+  - "Beautiful interface for family and guests"
+  - "Foundation for more advanced monitoring"
+  - "Fast deployment - running in under 3 minutes"

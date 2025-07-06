@@ -15,7 +15,8 @@ Zero Touch Cluster is a Kubernetes homelab automation project using k3s and Ansi
 ### Infrastructure Provisioning
 ```bash
 # STREAMLINED WORKFLOW (Recommended):
-# 1. Pre-cluster setup (creates infrastructure secrets only)
+# 1. Check prerequisites and prepare infrastructure secrets
+make check
 make prepare
 
 # 2. Create autoinstall USB drives for each node
@@ -60,13 +61,11 @@ make setup
 # Verify cluster status
 make status
 
-# Verify storage
-make deploy-storage
-
-# NFS storage management (optional)
-make deploy-nfs     # Deploy NFS provisioner
-make enable-nfs     # Enable NFS on storage node
-make disable-nfs    # Disable NFS storage
+# Verify and configure storage
+make storage              # Deploy default storage (local-path + NFS)
+make storage NFS=false    # Deploy storage without NFS
+make storage LONGHORN=true # Deploy storage with Longhorn
+make storage-status       # Check storage deployment status
 
 # Test basic functionality
 kubectl create deployment test --image=nginx
@@ -187,126 +186,128 @@ make uncordon-node NODE=<node-name>     # Uncordon node after maintenance
 
 ## Secrets Management
 
-**SECURE BY DEFAULT**: Zero Touch Cluster implements production-ready secrets management with Vaultwarden password manager, following ADR-001.
+**SECURE BY DEFAULT**: Zero Touch Cluster implements enterprise-grade secrets management using Kubernetes Sealed Secrets, providing zero-touch automation with strong security.
 
-### Two-Layer Security Architecture
+### Architecture Overview
 
-#### **Layer 1: Infrastructure Secrets (Ansible Vault + Sealed Secrets)**
-- **Interactive Setup**: `make setup` wizard handles all infrastructure secrets automatically
-- **Encrypted Storage**: All infrastructure secrets encrypted (Ansible Vault + Sealed Secrets)
-- **Git Protection**: Careful handling to prevent accidental secret commits
-- **No Manual Editing**: Zero exposure to plaintext secrets during setup
+ZTC uses a **two-layer security architecture**:
 
-#### **Layer 2: User Credential Management (Vaultwarden)**
-- **Professional Password Manager**: Self-hosted Vaultwarden for all service credentials
-- **Browser Integration**: Auto-fill, secure sharing, mobile app access
-- **Centralized Access**: Single source of truth for all ZTC system credentials
-- **Family Friendly**: Multiple users, secure sharing without password exposure
+#### **Layer 1: Infrastructure Secrets (Ansible Vault)**
+- SSH keys and cluster tokens in `ansible/inventory/secrets.yml`
+- Ansible vault password in `.ansible-vault-password`
+- k3s cluster initialization tokens
+- **Encrypted at rest** and **never committed in plaintext**
 
-### Credential Access Methods
+#### **Layer 2: Application Secrets (Sealed Secrets)**
+- Service passwords encrypted as Kubernetes secrets
+- GitOps repository access tokens
+- Monitoring stack authentication
+- **Automatically generated** and **encrypted before cluster deployment**
 
-#### **Primary: Vaultwarden Password Manager**
+### Credential Access
+
+#### **Primary: Enhanced CLI Commands**
 ```bash
-# Open Vaultwarden UI in browser
-make credentials
-
-# Show Vaultwarden master credentials
+# Show all system credentials
 make show-credentials
 
-# Access via web interface
-# URL: http://vault.homelab.lan
-# Username: ztc-admin
-# Password: [auto-generated secure password]
+# Show specific service credentials
+make show-credentials SERVICE=gitea
+make show-credentials SERVICE=grafana
+make show-credentials SERVICE=argocd
+
+# Quick password access (password only)
+make show-password SERVICE=gitea
+
+# Copy password to clipboard (macOS/Linux)
+make copy-password SERVICE=grafana
+
+# Export all credentials to file
+make export-credentials
+make export-credentials FILE=my-backup.txt
 ```
 
-#### **Fallback: CLI Commands**
+#### **Advanced CLI Access**
 ```bash
-# Show all system passwords in terminal
-make show-passwords
-
-# Individual service credentials
-kubectl get secret -n monitoring grafana-admin-credentials -o jsonpath='{.data.admin-password}' | base64 -d
+# Direct kubectl access (if needed)
+kubectl get secret -n monitoring grafana-admin-secret -o jsonpath='{.data.admin-password}' | base64 -d
 kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.password}' | base64 -d
 kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
 ```
 
-### Secret Types & Encryption
+### Security Features
 
-#### **Infrastructure Secrets** (Ansible Vault):
-- SSH keys and cluster tokens in `ansible/inventory/secrets.yml`
-- Ansible vault password in `.ansible-vault-password`
-- k3s cluster initialization tokens
+#### **Zero-Touch Security:**
+- ✅ **Automatic secret generation** with cryptographically secure passwords
+- ✅ **No plaintext secrets** ever stored on disk (except in memory during setup)
+- ✅ **Git-safe encryption** - all secrets encrypted before committing
+- ✅ **No manual credential management** required
 
-#### **Application Secrets** (Sealed Secrets):
-- Service passwords encrypted as Kubernetes secrets
-- Vaultwarden admin credentials
-- GitOps repository access tokens
-- Monitoring stack authentication
+#### **Enterprise-Grade Protection:**
+- ✅ **Sealed Secrets encryption** - secrets can only be decrypted in target cluster
+- ✅ **Ansible Vault protection** for infrastructure secrets
+- ✅ **Strong password generation** (32+ character base64 passwords)
+- ✅ **Namespace isolation** prevents secret access across services
 
-#### **User Credentials** (Vaultwarden):
-- Grafana admin access (monitoring)
-- Gitea admin access (git server)
-- ArgoCD admin access (gitops)
-- Future service credentials automatically organized
+### Workflow
 
-### Security Improvements Over Traditional Approaches
-
-#### **Eliminated Security Risks:**
-- ❌ **No more plaintext credential files** (credentials.txt)
-- ❌ **No password copy/paste vulnerabilities**
-- ❌ **No scattered credentials across multiple tools**
-- ❌ **No manual credential management**
-
-#### **Enhanced Security Features:**
-- ✅ **Zero plaintext secrets** on disk outside of memory
-- ✅ **Professional password management** with encryption
-- ✅ **Automated secret generation** with strong defaults
-- ✅ **Git workflow protection** via careful secret handling
-- ✅ **Browser integration** with auto-fill capabilities
-- ✅ **Audit trail** of credential access
-- ✅ **Secure sharing** capabilities for family/team
-
-### Credential Workflow
-
-#### **Setup Phase** (Automated):
-1. `make prepare` creates infrastructure secrets
-2. `make setup` deploys cluster with Vaultwarden
-3. Post-cluster setup generates all service credentials
-4. Vaultwarden automatically populated with credentials
-5. User receives only Vaultwarden master credentials
+#### **Setup Phase** (Fully Automated):
+1. `make prepare` creates infrastructure secrets (Ansible Vault)
+2. `make setup` deploys cluster and generates application secrets
+3. Sealed Secrets controller automatically decrypts secrets in cluster
+4. All services start with secure, auto-generated credentials
+5. User accesses credentials via `make show-credentials`
 
 #### **Daily Use**:
-1. Access http://vault.homelab.lan
-2. All service credentials organized by category
-3. Browser auto-fill for seamless login
-4. CLI fallback available when needed
-
-#### **Recovery Scenarios**:
 ```bash
-# Complete backup including Vaultwarden data
-make backup-secrets
+# Quick access to any service
+make show-credentials SERVICE=grafana
+# Copy password and paste into browser
 
-# Restore from backup after catastrophic failure
-make recover-secrets
-# Point to your encrypted backup file when prompted
-
-# Access credentials if Vaultwarden unavailable
-make show-passwords
+# Or copy directly to clipboard
+make copy-password SERVICE=gitea
+# Password now in clipboard for immediate paste
 ```
 
-### Family & Team Features
+#### **Backup & Recovery**:
+```bash
+# Export all credentials for backup
+make export-credentials FILE=ztc-backup-$(date +%Y%m%d).txt
 
-#### **Multi-User Access**:
-- Create additional Vaultwarden users via web UI
-- Share specific credentials without exposing passwords
-- Per-user access control and audit logging
+# Store backup file securely (encrypted drive, password manager, etc.)
+# Credentials can be recovered from this file if cluster is lost
+```
 
-#### **Device Integration**:
-- Browser extensions for auto-fill
-- Mobile apps for credential access
-- Secure sync across devices
+### Optional: Professional Password Manager
 
-**Important**: The setup uses the `ubuntu` user (not `admin`) for consistency with Ubuntu cloud images. All credential generation is automated during deployment.
+For users who need advanced password management features, Vaultwarden can be deployed as an **optional workload**:
+
+```bash
+# Deploy Vaultwarden for advanced password management
+make deploy-vaultwarden
+```
+
+**Vaultwarden provides:**
+- 🌐 Browser auto-fill integration
+- 📱 Mobile app access via Bitwarden apps  
+- 👥 Multi-user sharing for families/teams
+- 🔄 Sync across all devices
+- 📊 Advanced security reporting
+
+**See:** `kubernetes/workloads/templates/vaultwarden/README.md` for full details.
+
+### Credential Management Comparison
+
+| Feature | ZTC Built-in (Sealed Secrets) | Optional Vaultwarden |
+|---------|-------------------------------|---------------------|
+| **Setup** | ✅ Fully automatic | ⚠️ Manual account creation |
+| **Security** | ✅ Enterprise-grade | ✅ Enterprise-grade |
+| **CLI Access** | ✅ `make show-credentials` | ❌ API/CLI tools needed |
+| **Browser Integration** | ❌ Manual copy/paste | ✅ Auto-fill |
+| **Mobile Access** | ❌ CLI only | ✅ Native apps |
+| **Maintenance** | ✅ Zero maintenance | ⚠️ Additional service |
+
+**Recommendation**: Use ZTC built-in credentials for system administration. Deploy Vaultwarden only if you need browser/mobile integration or team sharing features.
 
 ## Private Git Server (Gitea)
 
@@ -543,6 +544,193 @@ ZTC provides both educational tools and production applications:
 - 🏆 **Content**: n8n, Uptime Kuma, Homepage, Vaultwarden, Code Server
 - ⚡ **Usage**: One-command deployment with automated GitOps
 - 🛠️ **Deployment**: `make deploy-<service>` with customization options
+
+## Workload Bundles
+
+**GROUPED DEPLOYMENTS**: ZTC bundles group related workloads for different user types and use cases, reducing multi-service deployment from 8+ commands to single bundle deployments.
+
+### Quick Bundle Deployment
+```bash
+# Deploy complete stacks with one command
+make deploy-bundle-starter      # Essential homelab services
+make deploy-bundle-monitoring   # Complete monitoring solution
+make deploy-bundle-productivity # Development and automation toolkit
+make deploy-bundle-security     # Password management and security
+
+# Bundle management
+make list-bundles               # List all available bundles
+make bundle-status              # Check deployment status of all bundles
+```
+
+### Available Bundles
+
+**🚀 Starter Bundle** (192Mi RAM, 2Gi storage)
+- **Perfect for**: First-time ZTC users, minimal resource usage
+- **Services**: Homepage dashboard + Uptime Kuma monitoring
+- **Use case**: Learning Kubernetes, testing cluster functionality
+
+**📊 Monitoring Bundle** (192Mi RAM, 3Gi storage)
+- **Perfect for**: Homelab operators wanting comprehensive monitoring
+- **Services**: Uptime Kuma monitoring + Homepage dashboard
+- **Use case**: 24/7 service monitoring and status pages
+
+**🛠️ Productivity Bundle** (1Gi RAM, 15Gi storage)
+- **Perfect for**: Developers, DevOps engineers, automation enthusiasts
+- **Services**: Code Server + n8n automation platform
+- **Use case**: Development environment and workflow automation
+
+**🔒 Security Bundle** (128Mi RAM, 5Gi storage)
+- **Perfect for**: Security-conscious users prioritizing credential management
+- **Services**: Vaultwarden password manager
+- **Use case**: Professional password management with browser integration
+
+### Bundle vs Individual Deployment
+
+**Individual Services** (traditional approach):
+```bash
+make deploy-homepage        # Just the dashboard
+make deploy-uptime-kuma     # Just monitoring
+make deploy-n8n             # Just automation
+make deploy-code-server     # Just development environment
+```
+
+**Bundle Services** (streamlined approach):
+```bash
+make deploy-bundle-starter      # Homepage + Uptime Kuma
+make deploy-bundle-productivity # Code Server + n8n
+# Deploy related services together with optimized configuration
+```
+
+### Bundle Architecture
+
+Each bundle includes:
+- **Metadata**: Description, category, resource requirements
+- **Workloads**: Services with deployment priority and dependencies
+- **Overrides**: Optimized configuration for each service
+- **Documentation**: Access URLs and post-installation steps
+
+Templates remain available individually AND in meaningful bundles, providing flexibility for different deployment preferences and use cases.
+
+## Custom Application Development
+
+**INTEGRATED DEVELOPMENT**: ZTC provides a complete development platform for building and deploying custom applications with integrated container registry and CI/CD.
+
+### Development Bundle
+
+**Complete development infrastructure with one command:**
+```bash
+# Deploy development bundle for custom application development
+make deploy-bundle-development
+
+# This provides:
+# - Enhanced Gitea with container registry (gitea.homelab.lan:5000)
+# - Gitea Actions CI/CD runners for automated builds
+# - VS Code development environment (http://code.homelab.lan)
+# - n8n automation platform (http://automation.homelab.lan)
+```
+
+### Development Workflow
+
+**Code to Production in Minutes:**
+```bash
+# 1. Create project in Gitea
+git clone http://gitea.homelab.lan/ztc-admin/my-webapp.git
+cd my-webapp
+
+# 2. Add application code and Dockerfile
+echo "FROM node:18-alpine" > Dockerfile
+echo "COPY . /app" >> Dockerfile
+echo "WORKDIR /app" >> Dockerfile
+echo "EXPOSE 8080" >> Dockerfile
+echo "CMD [\"npm\", \"start\"]" >> Dockerfile
+
+# 3. Add CI/CD workflow
+mkdir -p .gitea/workflows
+cat > .gitea/workflows/build.yml <<EOF
+name: Build and Push
+on: [push]
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: gitea.homelab.lan:5000
+          username: \${{ secrets.REGISTRY_USER }}
+          password: \${{ secrets.REGISTRY_PASSWORD }}
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          tags: gitea.homelab.lan:5000/ztc-admin/my-webapp:\${{ github.sha }}
+EOF
+
+# 4. Push code - triggers automatic build
+git add . && git commit -m "Initial commit" && git push
+
+# 5. Deploy application via GitOps
+make deploy-custom-app APP_NAME=my-webapp IMAGE_TAG=${COMMIT_SHA}
+
+# 6. Application accessible immediately
+curl http://my-webapp.homelab.lan
+```
+
+### Custom Application Commands
+
+```bash
+# Deploy custom application
+make deploy-custom-app APP_NAME=my-api IMAGE_TAG=v1.0.0
+
+# Deploy with custom configuration
+make deploy-custom-app APP_NAME=my-web-service \
+  IMAGE_TAG=latest \
+  PORT=3000 \
+  MEMORY_LIMIT=512Mi \
+  STORAGE_ENABLED=true
+
+# Container registry commands
+make registry-login    # Login to ZTC registry
+make registry-info     # Show registry information
+
+# CI/CD runner deployment
+make deploy-gitea-runner  # Deploy additional runners if needed
+```
+
+### Container Registry Integration
+
+**ZTC includes enhanced Gitea with container registry:**
+- **Registry URL**: `gitea.homelab.lan:5000`
+- **Authentication**: Integrated with Gitea user accounts
+- **Storage**: 40Gi dedicated for container images
+- **API**: Docker-compatible registry API at `/v2` endpoint
+
+### Custom Application Features
+
+**Flexible deployment template supports:**
+- **Any container image** from ZTC registry
+- **Custom ports and hostnames**
+- **Optional persistent storage**
+- **Resource limits and requests**
+- **Environment variables**
+- **Health checks**
+- **Security contexts**
+
+### Development Benefits
+
+**Complete Self-Contained Platform:**
+- **No External Dependencies**: Everything runs within ZTC
+- **Integrated Workflow**: Git → Build → Registry → Deploy → Live
+- **GitOps Native**: All deployments managed by ArgoCD
+- **Browser-Based Development**: Code from any device
+- **Automated CI/CD**: Push-to-deploy workflow
+
+**Professional Development Experience:**
+- **Container Registry**: Private registry for custom images
+- **CI/CD Pipeline**: Gitea Actions for automated builds
+- **IDE Integration**: VS Code with extensions and Git integration
+- **Automation**: n8n for DevOps workflows and integrations
 
 ## Network Configuration
 

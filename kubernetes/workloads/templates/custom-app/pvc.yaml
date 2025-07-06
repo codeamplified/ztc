@@ -1,0 +1,2 @@
+# Conditional PVC - only created if storage is enabled
+$STORAGE_PVC_YAML

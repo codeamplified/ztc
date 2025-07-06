@@ -1,0 +1,39 @@
+metadata:
+  name: "security"
+  description: "Essential security tools for homelab protection"
+  category: "security"
+  tags: ["security", "password-manager", "privacy", "essential"]
+  
+workloads:
+  - name: "vaultwarden"
+    priority: 1
+    description: "Self-hosted password manager for secure credential storage"
+    overrides:
+      STORAGE_CLASS: "nfs-client"
+      MEMORY_LIMIT: "128Mi"
+      STORAGE_SIZE: "5Gi"
+      HOSTNAME: "vault.homelab.lan"
+
+documentation:
+  summary: "Deploys essential security infrastructure for homelab credential management"
+  use_case: "Perfect for homelab operators prioritizing security and wanting professional password management"
+  access_urls:
+    - "http://vault.homelab.lan - Password manager and credential vault"
+  post_install:
+    - "Create your master account and configure 2FA"
+    - "Install browser extension for auto-fill capabilities"
+    - "Migrate passwords from other password managers"
+    - "Configure secure sharing for family members"
+    - "Set up regular backup schedule for vault data"
+  
+resource_requirements:
+  total_memory: "128Mi"
+  total_cpu: "50m"  
+  total_storage: "5Gi"
+  
+benefits:
+  - "Professional-grade password management"
+  - "Browser integration with auto-fill"
+  - "Secure sharing capabilities for family/team"
+  - "Self-hosted - complete control over your data"
+  - "Compatible with Bitwarden clients and extensions"

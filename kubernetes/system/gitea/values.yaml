@@ -41,19 +41,28 @@ gitea:
       log:
         LEVEL: Warn  # Reduce log verbosity for homelab
         
-  # Resource configuration for homelab environments
+      # Container registry configuration
+      packages:
+        ENABLED: true  # Enable package/container registry
+        
+      # Actions (CI/CD) configuration  
+      actions:
+        ENABLED: true  # Enable Gitea Actions
+        DEFAULT_ACTIONS_URL: "github"  # Use GitHub-compatible actions
+        
+  # Resource configuration for homelab environments (increased for registry)
   resources:
     limits:
-      cpu: 200m
-      memory: 256Mi
+      cpu: 300m
+      memory: 512Mi
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 150m
+      memory: 256Mi
       
-  # Persistence configuration
+  # Persistence configuration (increased for container registry storage)
   persistence:
     enabled: true
-    size: 10Gi
+    size: 40Gi  # Increased from 10Gi for container images
     storageClass: "nfs-client"  # Use shared storage for multi-node access
     
   # PostgreSQL configuration (bundled database)
@@ -88,6 +97,10 @@ gitea:
       type: NodePort
       port: 22
       nodePort: 30022  # Fixed port for SSH access
+    registry:
+      type: NodePort
+      port: 5000
+      nodePort: 30500  # Fixed port for container registry access
       
   # Ingress configuration for Traefik
   ingress:
@@ -99,6 +112,8 @@ gitea:
       - host: gitea.homelab.lan
         paths:
           - path: /
+            pathType: Prefix
+          - path: /v2  # Docker registry API endpoint
             pathType: Prefix
     tls: []
 

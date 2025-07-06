@@ -309,9 +309,28 @@ Available documentation:
 - **Storage**: Hybrid approach (local-path + NFS) via `kubernetes/system/storage/`
 - **Monitoring**: Helm chart configuration via `kubernetes/system/monitoring/`
 
+## Contributing
+
+We welcome contributions from the community! Zero Touch Cluster is designed to be easy to extend and customize.
+
+### How to Contribute
+
+1. **Read our [Contributing Guide](CONTRIBUTING.md)** for detailed instructions
+2. **Sign your commits** with the Developer Certificate of Origin (DCO): `git commit -s`
+3. **Follow our coding standards** and run `make lint` before submitting
+4. **Test your changes** thoroughly in a development environment
+
+### Getting Started
+
+- Check out [existing issues](../../issues) for contribution opportunities
+- Join our discussions for questions and ideas
+- Review the [technical documentation](CLAUDE.md) for development guidance
+
+All contributions require DCO sign-off for legal clarity. As the project grows, we plan to implement a full Contributor License Agreement (CLA) system to enable future commercial licensing options while maintaining our open source commitment.
+
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+Apache License 2.0 - see [LICENSE](LICENSE) file for details.
 
 ---
 

@@ -1,9 +1,0 @@
-{{- if .Values.vaultwarden.enabled }}
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: {{ include "ztc-vaultwarden.namespace" . }}
-  labels:
-    {{- include "ztc-vaultwarden.labels" . | nindent 4 }}
-    name: {{ include "ztc-vaultwarden.namespace" . }}
-{{- end }}

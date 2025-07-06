@@ -1,0 +1,45 @@
+metadata:
+  name: custom-app
+  description: "Deploy custom applications from ZTC container registry"
+  namespace: $APP_NAME
+  category: custom
+  
+defaults:
+  # Container image configuration
+  image_registry: "gitea.homelab.lan:5000"
+  image_repository: "$GITEA_USER/$APP_NAME"
+  image_tag: "latest"
+  
+  # Network configuration
+  hostname: "$APP_NAME.homelab.lan"
+  port: "8080"
+  
+  # Deployment configuration
+  replicas: "1"
+  
+  # Resource limits
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+      
+  # Storage configuration (optional)
+  storage_enabled: "false"
+  storage_size: "1Gi"
+  storage_class: "local-path"
+  storage_mount_path: "/data"
+  
+  # Environment variables (optional)
+  env_vars: "[]"  # JSON array: [{"name":"KEY","value":"VALUE"}]
+  
+  # Health check configuration
+  health_check_enabled: "true"
+  health_check_path: "/health"
+  
+  # Security configuration
+  run_as_user: "1000"
+  run_as_group: "1000"
+  read_only_root_filesystem: "false"

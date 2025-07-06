@@ -11,32 +11,27 @@ workloads:
     overrides:
       STORAGE_CLASS: "nfs-client"
       MEMORY_LIMIT: "128Mi"
-      
-  - name: "homepage"  
-    priority: 2
-    description: "Beautiful service dashboard and bookmarks"
-    overrides:
-      HOSTNAME: "home.homelab.lan"
-      STORAGE_CLASS: "local-path"
+      HOSTNAME: "status.homelab.lan"
 
 documentation:
-  summary: "Deploys comprehensive service monitoring and organization tools"
-  use_case: "Perfect for homelab operators who want to monitor service health and organize access to all their services"
+  summary: "Deploys comprehensive service monitoring with enhanced ZTC dashboard integration"
+  use_case: "Perfect for homelab operators who want professional service monitoring with the ZTC dashboard"
   access_urls:
+    - "http://homelab.lan - ZTC Dashboard (automatically available)"
     - "http://status.homelab.lan - Service monitoring and uptime tracking"
-    - "http://home.homelab.lan - Service dashboard and bookmarks"
   post_install:
     - "Configure Uptime Kuma to monitor your essential services"
-    - "Customize Homepage with your service links and bookmarks"
-    - "Both services include persistent storage for configuration"
+    - "Access the main ZTC dashboard at http://homelab.lan for service directory"
+    - "Uptime Kuma provides detailed monitoring and status pages"
+    - "ZTC dashboard automatically shows Uptime Kuma status"
   
 resource_requirements:
-  total_memory: "192Mi"
-  total_cpu: "100m"  
-  total_storage: "3Gi"
+  total_memory: "128Mi"
+  total_cpu: "75m"  
+  total_storage: "2Gi"
   
 benefits:
   - "24/7 monitoring of all homelab services"
-  - "Beautiful visual dashboard for family and guests"
+  - "Integrated with ZTC dashboard for unified experience"
   - "Status pages for communicating service availability"
-  - "Persistent configuration survives cluster restarts"
+  - "Persistent monitoring configuration"

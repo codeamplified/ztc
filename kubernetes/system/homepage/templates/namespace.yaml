@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: homepage
+  labels:
+    {{- include "ztc-homepage.labels" . | nindent 4 }}
+    ztc.homelab/component: "core"
+  annotations:
+    ztc.homelab/description: "ZTC entry point dashboard and service portal"

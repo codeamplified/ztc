@@ -1,0 +1,220 @@
+# ZTC Homepage - Entry Point Dashboard
+# Pre-configured with ZTC services and branding
+
+homepage:
+  # ZTC Branding
+  title: "Zero Touch Cluster"
+  subtitle: "Your Kubernetes Homelab Platform"
+  logo: "https://raw.githubusercontent.com/kubernetes/kubernetes/master/logo/logo.png"
+  
+  # Theme Configuration
+  theme: "dark"
+  color: "blue"
+  headerStyle: "clean"
+  hideVersion: true
+  
+  # Container Configuration
+  image:
+    repository: "ghcr.io/gethomepage/homepage"
+    tag: "v0.9.2"
+    pullPolicy: "IfNotPresent"
+  
+  puid: 1000
+  pgid: 1000
+  logLevel: "info"
+  
+  # Layout Configuration
+  layout:
+    Core Infrastructure:
+      style: "row"
+      columns: 3
+    Applications:
+      style: "row" 
+      columns: 4
+    Development:
+      style: "row"
+      columns: 3
+    Monitoring:
+      style: "row"
+      columns: 2
+  
+  # Pre-configured ZTC Services
+  services:
+    # Core Infrastructure Services
+    - name: "Core Infrastructure"
+      services:
+        - name: "Gitea"
+          icon: "gitea"
+          href: "http://gitea.homelab.lan"
+          description: "Git server with container registry"
+          widget:
+            type: "gitea"
+            url: "http://gitea-http.gitea.svc.cluster.local:3000"
+            username: "{{HOMEPAGE_VAR_GITEA_USER}}"
+            token: "{{HOMEPAGE_VAR_GITEA_TOKEN}}"
+            
+        - name: "ArgoCD"
+          icon: "argocd"
+          href: "http://argocd.homelab.lan"
+          description: "GitOps continuous deployment"
+          widget:
+            type: "argocd"
+            url: "http://argocd-server.argocd.svc.cluster.local"
+            username: "admin"
+            password: "{{HOMEPAGE_VAR_ARGOCD_PASSWORD}}"
+            
+        - name: "Grafana"
+          icon: "grafana"
+          href: "http://grafana.homelab.lan"
+          description: "Monitoring and observability"
+          widget:
+            type: "grafana"
+            url: "http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local"
+            username: "admin"
+            password: "{{HOMEPAGE_VAR_GRAFANA_PASSWORD}}"
+
+    # Application Services (Dynamic based on deployments)
+    - name: "Applications"
+      services:
+        - name: "Service Discovery"
+          icon: "kubernetes"
+          description: "Automatically discovers deployed workloads"
+          widget:
+            type: "kubernetes"
+            cluster:
+              show: true
+              cpu: true
+              memory: true
+              showLabel: true
+              label: "cluster"
+            nodes:
+              show: true
+              cpu: true
+              memory: true
+              showLabel: true
+
+  # Widgets for cluster overview
+  widgets:
+    - kubernetes:
+        cluster:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+          label: "cluster"
+        nodes:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+    - search:
+        provider: "duckduckgo"
+        target: "_blank"
+    - datetime:
+        text_size: "xl"
+        format:
+          timeStyle: "short"
+          dateStyle: "short"
+          hourCycle: "h23"
+
+  # Quick access bookmarks
+  bookmarks:
+    - ZTC Resources:
+        - name: "ZTC Documentation"
+          abbr: "DOC"
+          href: "https://github.com/skol/ztc"
+        - name: "Kubernetes Dashboard"
+          abbr: "K8S"
+          href: "http://argocd.homelab.lan"
+        - name: "Container Registry"
+          abbr: "REG"
+          href: "http://gitea.homelab.lan"
+
+  # Network Configuration
+  ingress:
+    enabled: true
+    className: "traefik"
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: "web"
+      traefik.ingress.kubernetes.io/router.rule: "Host(`homelab.lan`)"
+    hosts:
+      - host: "homelab.lan"  # Root domain entry point
+        paths:
+          - path: "/"
+            pathType: "Prefix"
+    tls: []
+
+  # Resource Configuration
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "200m"
+
+  # Security Configuration
+  podSecurityContext:
+    fsGroup: 1000
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+
+  # Health Checks
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+      timeoutSeconds: 10
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+  # Persistence (optional)
+  persistence:
+    enabled: true
+    storageClass: "local-path"
+    size: "1Gi"
+    accessModes:
+      - "ReadWriteOnce"
+
+  # RBAC for Kubernetes API access
+  rbac:
+    enabled: true
+
+  # Additional environment variables for service discovery
+  extraEnv:
+    - name: "HOMEPAGE_VAR_GITEA_USER"
+      valueFrom:
+        secretKeyRef:
+          name: "gitea-admin-secret"
+          key: "username"
+          optional: true
+    - name: "HOMEPAGE_VAR_GITEA_TOKEN"
+      valueFrom:
+        secretKeyRef:
+          name: "homepage-tokens"
+          key: "gitea-token"
+          optional: true
+    - name: "HOMEPAGE_VAR_ARGOCD_PASSWORD"
+      valueFrom:
+        secretKeyRef:
+          name: "argocd-initial-admin-secret"
+          key: "password"
+          optional: true
+    - name: "HOMEPAGE_VAR_GRAFANA_PASSWORD"
+      valueFrom:
+        secretKeyRef:
+          name: "grafana-admin-secret"
+          key: "admin-password"
+          optional: true

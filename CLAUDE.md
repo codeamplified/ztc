@@ -10,6 +10,32 @@ Zero Touch Cluster is a Kubernetes homelab automation project using k3s and Ansi
 - Ansible for infrastructure provisioning and application deployment
 - "Bootstrappable USB" provisioning workflow
 
+## ZTC Entry Point
+
+**UNIFIED ACCESS**: ZTC provides a professional dashboard at `http://homelab.lan` as the primary entry point to your cluster.
+
+### Dashboard Features
+- **Service Directory**: Auto-discovers and displays all deployed ZTC services
+- **Cluster Overview**: Real-time status of nodes, pods, and resource usage  
+- **Bundle Management**: View deployment status of workload bundles
+- **Quick Actions**: Direct access to all core services (Gitea, ArgoCD, Grafana)
+- **ZTC Branding**: Professional interface showcasing your platform capabilities
+
+### Core Services Access
+- **Primary Portal**: `http://homelab.lan` - ZTC Dashboard and unified entry point
+- **Git Server**: `http://gitea.homelab.lan` - Source code and container registry
+- **GitOps**: `http://argocd.homelab.lan` - Deployment management and status
+- **Monitoring**: `http://grafana.homelab.lan` - Metrics, logs, and dashboards
+
+### First-Time User Experience
+1. Complete infrastructure deployment with `make setup`
+2. Access `http://homelab.lan` in your browser
+3. Explore the dashboard to see all available services
+4. Click service tiles for direct access to each application
+5. View cluster health and deployment status in real-time
+
+The ZTC dashboard automatically discovers deployed workloads and provides a consistent navigation experience across your entire homelab platform.
+
 ## Common Commands
 
 ### Infrastructure Provisioning
@@ -26,7 +52,11 @@ make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-worker-01 IP_OCTET=11
 # 3. Deploy complete infrastructure (cluster + sealed secrets + applications)
 make setup
 
-# 4. Create encrypted backup of all secrets
+# 4. Access your ZTC cluster
+# Primary entry point: http://homelab.lan
+# Provides unified access to all services and cluster status
+
+# 5. Create encrypted backup of all secrets
 make backup-secrets
 
 # LEGACY WORKFLOW (Manual):

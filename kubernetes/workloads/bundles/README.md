@@ -23,28 +23,28 @@ make bundle-status
 ### 🚀 Starter Bundle
 **Perfect for**: First-time ZTC users, learning Kubernetes, minimal resource usage
 
-**Services**: Homepage dashboard + Uptime Kuma monitoring  
-**Resources**: 192Mi RAM, 75m CPU, 2Gi storage  
+**Services**: Uptime Kuma monitoring (ZTC Dashboard included automatically)  
+**Resources**: 128Mi RAM, 50m CPU, 1Gi storage  
 **Command**: `make deploy-bundle-starter`
 
 **What you get**:
-- Beautiful service dashboard at `http://home.homelab.lan`
+- ZTC Dashboard automatically available at `http://homelab.lan`
 - Service health monitoring at `http://status.homelab.lan`
-- Minimal resource usage perfect for learning
-- Great foundation before adding more services
+- Ultra-minimal resource usage perfect for learning
+- Professional entry point with service discovery
 
 ### 📊 Monitoring Bundle
 **Perfect for**: Homelab operators wanting comprehensive monitoring
 
-**Services**: Uptime Kuma monitoring + Homepage dashboard  
-**Resources**: 192Mi RAM, 100m CPU, 3Gi storage  
+**Services**: Uptime Kuma monitoring (ZTC Dashboard included automatically)  
+**Resources**: 128Mi RAM, 75m CPU, 2Gi storage  
 **Command**: `make deploy-bundle-monitoring`
 
 **What you get**:
 - 24/7 monitoring of all homelab services
+- Professional ZTC Dashboard at `http://homelab.lan`
 - Status pages for communicating availability
-- Visual dashboard for family and guests
-- Persistent configuration that survives restarts
+- Integrated monitoring with service discovery
 
 ### 🛠️ Productivity Bundle
 **Perfect for**: Developers, DevOps engineers, automation enthusiasts
@@ -94,17 +94,18 @@ make deploy-bundle-starter
 
 **You can still deploy services individually:**
 ```bash
-make deploy-homepage        # Just the dashboard
 make deploy-uptime-kuma     # Just monitoring
 make deploy-n8n             # Just automation
 make deploy-code-server     # Just development environment
 make deploy-vaultwarden     # Just password manager
 ```
 
+**Note**: ZTC Dashboard is automatically available at `http://homelab.lan` as part of core infrastructure.
+
 **Or deploy complete stacks:**
 ```bash
-make deploy-bundle-starter      # Homepage + Uptime Kuma
-make deploy-bundle-monitoring   # Uptime Kuma + Homepage (monitoring-focused)
+make deploy-bundle-starter      # Uptime Kuma (+ ZTC Dashboard)
+make deploy-bundle-monitoring   # Uptime Kuma (+ ZTC Dashboard)
 make deploy-bundle-productivity # Code Server + n8n
 make deploy-bundle-security     # Vaultwarden
 ```
@@ -130,8 +131,8 @@ OVERRIDE_STORAGE_CLASS=longhorn make deploy-bundle-security
 OVERRIDE_MEMORY_LIMIT=256Mi make deploy-bundle-starter
 
 # Deploy individual services with custom settings
-make deploy-homepage HOSTNAME=dashboard.homelab.lan
 make deploy-n8n STORAGE_SIZE=20Gi IMAGE_TAG=1.64.0
+make deploy-uptime-kuma MEMORY_LIMIT=256Mi
 ```
 
 ### Bundle Status and Management
@@ -141,14 +142,14 @@ make deploy-n8n STORAGE_SIZE=20Gi IMAGE_TAG=1.64.0
 make bundle-status
 
 # Check specific workload status
-make workload-status WORKLOAD=homepage
+make workload-status WORKLOAD=uptime-kuma
 make workload-status WORKLOAD=n8n
 
 # List all deployed workloads
 make list-workloads
 
 # Remove specific workload
-make undeploy-workload WORKLOAD=homepage
+make undeploy-workload WORKLOAD=uptime-kuma
 ```
 
 ## Deployment Order
@@ -186,7 +187,7 @@ This ensures dependencies are met and critical services start first.
 ```bash
 # Check if templates exist
 ls kubernetes/workloads/templates/
-# Should show: n8n, uptime-kuma, homepage, vaultwarden, code-server
+# Should show: n8n, uptime-kuma, vaultwarden, code-server, gitea-runner, custom-app
 ```
 
 **Problem**: Services not accessible after deployment

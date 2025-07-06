@@ -1,6 +1,6 @@
 # Zero Touch Cluster Makefile
 
-.PHONY: help prepare check setup storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack longhorn-stack setup-gitea-repos deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-homepage undeploy-code-server deploy-bundle-starter deploy-bundle-monitoring deploy-bundle-productivity deploy-bundle-security deploy-bundle-development list-bundles bundle-status deploy-custom-app deploy-gitea-runner registry-login registry-info
+.PHONY: help prepare check setup storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack longhorn-stack setup-gitea-repos homepage-stack deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-code-server deploy-bundle-starter deploy-bundle-monitoring deploy-bundle-productivity deploy-bundle-security deploy-bundle-development list-bundles bundle-status deploy-custom-app deploy-gitea-runner registry-login registry-info
 
 # Default target
 .DEFAULT_GOAL := help
@@ -139,7 +139,7 @@ setup: check deploy-storage-server cluster copy-kubeconfig install-sealed-secret
 
 ##@ System Components (Helm Charts)
 
-system-components: monitoring-stack gitea-stack ## Deploy all system components
+system-components: monitoring-stack gitea-stack homepage-stack ## Deploy all system components
 	@echo "$(GREEN)✅ All system components deployed$(RESET)"
 
 monitoring-stack: ## Deploy monitoring stack (Prometheus, Grafana, AlertManager)
@@ -199,6 +199,18 @@ setup-gitea-repos: ## Setup required Gitea repositories after deployment
 	@echo "$(CYAN)Setting up Gitea repositories...$(RESET)"
 	@chmod +x provisioning/lib/setup-gitea-repos.sh
 	@./provisioning/lib/setup-gitea-repos.sh
+
+homepage-stack: ## Deploy Homepage entry point dashboard
+	@echo "$(CYAN)Deploying ZTC Homepage dashboard...$(RESET)"
+	@echo "$(CYAN)Installing Homepage entry point (root domain)...$(RESET)"
+	helm upgrade --install homepage ./kubernetes/system/homepage \
+		--namespace homepage \
+		--create-namespace \
+		--values ./kubernetes/system/homepage/values.yaml \
+		--wait --timeout 10m
+	@echo "$(GREEN)✅ ZTC Homepage deployed$(RESET)"
+	@echo "$(CYAN)🏠 Primary entry point: http://homelab.lan$(RESET)"
+	@echo "$(YELLOW)ℹ️  Homepage provides unified access to all ZTC services$(RESET)"
 
 ##@ Storage Management
 
@@ -442,9 +454,6 @@ deploy-n8n: ## Deploy n8n workflow automation platform
 
 deploy-uptime-kuma: ## Deploy Uptime Kuma service monitoring
 	@$(call deploy_workload,uptime-kuma)
-
-deploy-homepage: ## Deploy Homepage service dashboard
-	@$(call deploy_workload,homepage)
 
 deploy-vaultwarden: ## Deploy Vaultwarden password manager
 	@$(call deploy_workload,vaultwarden)

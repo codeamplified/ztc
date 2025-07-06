@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-config
+  namespace: homepage
+  labels:
+    {{- include "ztc-homepage.labels" . | nindent 4 }}
+data:
+  settings.yaml: |
+    title: {{ .Values.homepage.title | quote }}
+    subtitle: {{ .Values.homepage.subtitle | quote }}
+    logo: {{ .Values.homepage.logo | quote }}
+    
+    theme: {{ .Values.homepage.theme | quote }}
+    color: {{ .Values.homepage.color | quote }}
+    
+    headerStyle: {{ .Values.homepage.headerStyle | quote }}
+    hideVersion: {{ .Values.homepage.hideVersion }}
+    
+    layout:
+      {{- toYaml .Values.homepage.layout | nindent 6 }}
+
+  services.yaml: |
+    {{- range .Values.homepage.services }}
+    - {{ .name }}:
+        {{- if .icon }}
+        icon: {{ .icon }}
+        {{- end }}
+        {{- if .href }}
+        href: {{ .href }}
+        {{- end }}
+        {{- if .description }}
+        description: {{ .description }}
+        {{- end }}
+        {{- if .widget }}
+        widget:
+          {{- toYaml .widget | nindent 10 }}
+        {{- end }}
+    {{- end }}
+
+  widgets.yaml: |
+    {{- if .Values.homepage.widgets }}
+    {{- toYaml .Values.homepage.widgets | nindent 4 }}
+    {{- end }}
+    
+  bookmarks.yaml: |
+    {{- if .Values.homepage.bookmarks }}
+    {{- toYaml .Values.homepage.bookmarks | nindent 4 }}
+    {{- end }}
+
+  docker.yaml: |
+    # Docker integration disabled for ZTC
+    # Services are discovered via Kubernetes API
+
+  kubernetes.yaml: |
+    mode: cluster

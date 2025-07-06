@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ztc-homepage.fullname" . }}
+  namespace: homepage
+  labels:
+    {{- include "ztc-homepage.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ztc-homepage.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ztc-homepage.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.homepage.podSecurityContext | nindent 8 }}
+      serviceAccountName: {{ include "ztc-homepage.fullname" . }}
+      containers:
+      - name: homepage
+        image: "{{ .Values.homepage.image.repository }}:{{ .Values.homepage.image.tag }}"
+        imagePullPolicy: {{ .Values.homepage.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: 3000
+          protocol: TCP
+        env:
+        - name: PUID
+          value: "{{ .Values.homepage.puid }}"
+        - name: PGID
+          value: "{{ .Values.homepage.pgid }}"
+        - name: HOMEPAGE_VAR_TITLE
+          value: "{{ .Values.homepage.title }}"
+        - name: LOG_LEVEL
+          value: "{{ .Values.homepage.logLevel }}"
+        {{- if .Values.homepage.extraEnv }}
+        {{- toYaml .Values.homepage.extraEnv | nindent 8 }}
+        {{- end }}
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        - name: logs
+          mountPath: /app/config/logs
+        {{- if .Values.homepage.persistence.enabled }}
+        - name: data
+          mountPath: /app/config/data
+        {{- end }}
+        resources:
+          {{- toYaml .Values.homepage.resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: {{ .Values.homepage.probes.liveness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.homepage.probes.liveness.periodSeconds }}
+          timeoutSeconds: {{ .Values.homepage.probes.liveness.timeoutSeconds }}
+          failureThreshold: {{ .Values.homepage.probes.liveness.failureThreshold }}
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: {{ .Values.homepage.probes.readiness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.homepage.probes.readiness.periodSeconds }}
+          timeoutSeconds: {{ .Values.homepage.probes.readiness.timeoutSeconds }}
+          failureThreshold: {{ .Values.homepage.probes.readiness.failureThreshold }}
+        securityContext:
+          {{- toYaml .Values.homepage.securityContext | nindent 10 }}
+      volumes:
+      - name: config
+        configMap:
+          name: homepage-config
+      - name: logs
+        emptyDir: {}
+      {{- if .Values.homepage.persistence.enabled }}
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ include "ztc-homepage.fullname" . }}-data
+      {{- end }}

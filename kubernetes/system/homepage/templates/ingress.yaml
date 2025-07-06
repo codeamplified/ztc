@@ -1,0 +1,34 @@
+{{- if .Values.homepage.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "ztc-homepage.fullname" . }}
+  namespace: homepage
+  labels:
+    {{- include "ztc-homepage.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.homepage.ingress.annotations | nindent 4 }}
+spec:
+  {{- if .Values.homepage.ingress.className }}
+  ingressClassName: {{ .Values.homepage.ingress.className }}
+  {{- end }}
+  rules:
+  {{- range .Values.homepage.ingress.hosts }}
+  - host: {{ .host | quote }}
+    http:
+      paths:
+      {{- range .paths }}
+      - path: {{ .path }}
+        pathType: {{ .pathType }}
+        backend:
+          service:
+            name: {{ include "ztc-homepage.fullname" $ }}
+            port:
+              number: 3000
+      {{- end }}
+  {{- end }}
+  {{- if .Values.homepage.ingress.tls }}
+  tls:
+    {{- toYaml .Values.homepage.ingress.tls | nindent 4 }}
+  {{- end }}
+{{- end }}

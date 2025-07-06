@@ -1,0 +1,43 @@
+{{- if .Values.homepage.rbac.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ztc-homepage.fullname" . }}
+  labels:
+    {{- include "ztc-homepage.labels" . | nindent 4 }}
+rules:
+# Read access for service discovery
+- apiGroups: [""]
+  resources: ["namespaces", "services", "pods", "nodes"]
+  verbs: ["get", "list"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
+  verbs: ["get", "list"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list"]
+# Read ArgoCD applications for bundle status
+- apiGroups: ["argoproj.io"]
+  resources: ["applications"]
+  verbs: ["get", "list"]
+# Read metrics for resource usage
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ztc-homepage.fullname" . }}
+  labels:
+    {{- include "ztc-homepage.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ztc-homepage.fullname" . }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "ztc-homepage.fullname" . }}
+  namespace: homepage
+{{- end }}

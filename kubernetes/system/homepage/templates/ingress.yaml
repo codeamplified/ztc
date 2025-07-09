@@ -3,7 +3,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "ztc-homepage.fullname" . }}
-  namespace: homepage
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "ztc-homepage.labels" . | nindent 4 }}
   annotations:
@@ -24,7 +24,7 @@ spec:
           service:
             name: {{ include "ztc-homepage.fullname" $ }}
             port:
-              number: 3000
+              number: 80
       {{- end }}
   {{- end }}
   {{- if .Values.homepage.ingress.tls }}

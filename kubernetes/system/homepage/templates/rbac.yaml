@@ -16,6 +16,13 @@ rules:
 - apiGroups: ["networking.k8s.io"]
   resources: ["ingresses"]
   verbs: ["get", "list"]
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions", "customresourcedefinitions/status"]
+  verbs: ["get", "list"]
+# Read Traefik resources
+- apiGroups: ["traefik.containo.us", "traefik.io"]
+  resources: ["ingressroutes", "ingressroutetcps", "ingressrouteudps", "middlewares", "middlewaretcps", "tlsoptions", "tlsstores", "traefikservices", "serverstransports"]
+  verbs: ["get", "list"]
 # Read ArgoCD applications for bundle status
 - apiGroups: ["argoproj.io"]
   resources: ["applications"]
@@ -39,5 +46,5 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: {{ include "ztc-homepage.fullname" . }}
-  namespace: homepage
+  namespace: {{ .Release.Namespace }}
 {{- end }}

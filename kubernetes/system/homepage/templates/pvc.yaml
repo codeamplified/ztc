@@ -1,9 +1,11 @@
 {{- if .Values.homepage.persistence.enabled }}
+# NOTE: Persistence is disabled by default for config hot-reload support
+# If you enable persistence, configuration updates will require pod deletion
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ include "ztc-homepage.fullname" . }}-data
-  namespace: homepage
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "ztc-homepage.labels" . | nindent 4 }}
 spec:

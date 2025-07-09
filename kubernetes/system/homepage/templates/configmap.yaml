@@ -1,15 +1,17 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: homepage-config
-  namespace: homepage
+  name: {{ include "ztc-homepage.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "ztc-homepage.labels" . | nindent 4 }}
 data:
   settings.yaml: |
     title: {{ .Values.homepage.title | quote }}
     subtitle: {{ .Values.homepage.subtitle | quote }}
+    {{- if .Values.homepage.logo }}
     logo: {{ .Values.homepage.logo | quote }}
+    {{- end }}
     
     theme: {{ .Values.homepage.theme | quote }}
     color: {{ .Values.homepage.color | quote }}
@@ -17,40 +19,113 @@ data:
     headerStyle: {{ .Values.homepage.headerStyle | quote }}
     hideVersion: {{ .Values.homepage.hideVersion }}
     
+    # Disable default content
+    startUrl: "http://homelab.lan"
+    
+    # Custom favicon and background
+    favicon: "/icons/kubernetes.png"
+    
     layout:
-      {{- toYaml .Values.homepage.layout | nindent 6 }}
+{{ .Values.homepage.layout | toYaml | indent 6 }}
 
   services.yaml: |
-    {{- range .Values.homepage.services }}
+{{- if .Values.homepage.services }}
+{{- range .Values.homepage.services }}
     - {{ .name }}:
-        {{- if .icon }}
-        icon: {{ .icon }}
-        {{- end }}
-        {{- if .href }}
-        href: {{ .href }}
-        {{- end }}
-        {{- if .description }}
-        description: {{ .description }}
-        {{- end }}
-        {{- if .widget }}
-        widget:
-          {{- toYaml .widget | nindent 10 }}
-        {{- end }}
-    {{- end }}
+{{- range .services }}
+        - {{ .name }}:
+            icon: {{ .icon | default "mdi-application" | quote }}
+            href: {{ .href | quote }}
+            description: {{ .description | quote }}
+{{- if .widget }}
+            widget:
+{{ .widget | toYaml | indent 14 }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- else }}
+    # Services will be auto-discovered via Kubernetes integration
+{{- end }}
 
   widgets.yaml: |
-    {{- if .Values.homepage.widgets }}
-    {{- toYaml .Values.homepage.widgets | nindent 4 }}
-    {{- end }}
+{{- if .Values.homepage.widgets }}
+{{ .Values.homepage.widgets | toYaml | indent 4 }}
+{{- else }}
+    # Default widgets
+    - search:
+        provider: duckduckgo
+        target: _blank
+    - datetime:
+        text_size: xl
+        format:
+          timeStyle: short
+          dateStyle: short
+          hourCycle: h23
+{{- end }}
     
   bookmarks.yaml: |
-    {{- if .Values.homepage.bookmarks }}
-    {{- toYaml .Values.homepage.bookmarks | nindent 4 }}
-    {{- end }}
+{{- if .Values.homepage.bookmarks }}
+{{- range .Values.homepage.bookmarks }}
+    - {{ .group }}:
+{{- range .items }}
+        - {{ .name }}:
+            - href: {{ .href | quote }}
+              {{- if .abbr }}
+              abbr: {{ .abbr | quote }}
+              {{- end }}
+{{- end }}
+{{- end }}
+{{- else }}
+    # No bookmarks configured
+{{- end }}
 
   docker.yaml: |
     # Docker integration disabled for ZTC
-    # Services are discovered via Kubernetes API
 
   kubernetes.yaml: |
+    # Enable Kubernetes service discovery
     mode: cluster
+    
+    # Namespace-based service discovery (set to "all" for cluster-wide)
+    namespaces:
+      - homepage
+      - gitea  
+      - argocd
+      - monitoring
+      - n8n
+      - uptime-kuma
+      - vaultwarden
+      - code-server
+    
+    # Label selector for services to show
+    labelSelector: "ztc.homelab/homepage-enabled=true"
+
+  custom.css: |
+    /* ZTC Homepage Custom Styling */
+    .homepage-title {
+      color: #2563eb;
+      font-weight: 700;
+    }
+    
+    .homepage-subtitle {
+      color: #64748b;
+    }
+    
+    /* Hide default content and ensure ZTC content loads immediately */
+    .homepage-loading {
+      display: none !important;
+    }
+    
+    /* Ensure dark theme consistency */
+    body {
+      background: #0f172a;
+    }
+    
+    .service-card {
+      border: 1px solid #334155;
+      background: #1e293b;
+    }
+    
+    .service-card:hover {
+      border-color: #2563eb;
+    }

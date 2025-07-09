@@ -17,11 +17,11 @@ documentation:
   summary: "Essential monitoring for new ZTC users - service health tracking with minimal resource usage"
   use_case: "Perfect for beginners who want to monitor their homelab services with minimal overhead"
   access_urls:
-    - "http://homelab.lan - ZTC Dashboard (automatically available)"
+    - "http://homelab.lan - ZTC Dashboard (automatically available with core system)"
     - "http://status.homelab.lan - Service health monitoring"
   post_install:
     - "Configure Uptime Kuma to monitor your essential services"
-    - "Access the main ZTC dashboard at http://homelab.lan"
+    - "The ZTC dashboard at http://homelab.lan is automatically available"
     - "Uptime Kuma uses minimal resources - perfect for learning"
     - "Great foundation before adding more advanced workloads"
   

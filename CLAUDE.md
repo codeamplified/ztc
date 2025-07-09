@@ -15,11 +15,12 @@ Zero Touch Cluster is a Kubernetes homelab automation project using k3s and Ansi
 **UNIFIED ACCESS**: ZTC provides a professional dashboard at `http://homelab.lan` as the primary entry point to your cluster.
 
 ### Dashboard Features
-- **Service Directory**: Auto-discovers and displays all deployed ZTC services
-- **Cluster Overview**: Real-time status of nodes, pods, and resource usage  
-- **Bundle Management**: View deployment status of workload bundles
-- **Quick Actions**: Direct access to all core services (Gitea, ArgoCD, Grafana)
-- **ZTC Branding**: Professional interface showcasing your platform capabilities
+- **Automatic Service Discovery**: Discovers ZTC services via Kubernetes annotations
+- **Real-Time Cluster Metrics**: Live status of nodes, pods, CPU, and memory usage
+- **Hot Configuration Reload**: Updates instantly without restarts when services change
+- **Service Widgets**: Interactive widgets showing service health and metrics
+- **Professional Interface**: Modern dark theme with ZTC branding
+- **Zero Configuration Flash**: Loads ZTC content immediately without default page
 
 ### Core Services Access
 - **Primary Portal**: `http://homelab.lan` - ZTC Dashboard and unified entry point
@@ -443,10 +444,11 @@ kubectl rollout restart statefulset/argocd-application-controller -n argocd
   ```bash
   kubectl get secret -n gitea gitea-admin-secret -o jsonpath="{.data.password}" | base64 -d
   ```
-- If using default setup: `changeme123` (should be changed to sealed secret)
+- **Quick access**: `make show-credentials SERVICE=gitea`
 
 ### Installation Notes:
-- **First-time deployment**: Use default credentials, then run `make prepare` for secure credentials
+- **Secure credentials**: Automatically generated via Sealed Secrets during deployment
+- **Credential access**: Use `make show-credentials SERVICE=gitea` to retrieve current password
 - **Startup time**: Allow 2-3 minutes for initial database setup
 - **Resource requirements**: ~300MB RAM total for Gitea + PostgreSQL
 
@@ -478,7 +480,8 @@ make workload-status WORKLOAD=n8n
 - **Uptime Kuma**: Service monitoring and status pages (64-128Mi RAM, local-path storage)
 
 **Organization**
-- **Homepage**: Modern service dashboard (32-64Mi RAM, local-path storage)
+- **Homepage**: Customizable service dashboard with Kubernetes integration (128-256Mi RAM, ConfigMap storage)
+  - *Features: Service discovery, cluster metrics, custom themes, hot-reload configuration*
 
 **Security**
 - **Vaultwarden**: Self-hosted password manager (64-128Mi RAM, nfs-client storage)

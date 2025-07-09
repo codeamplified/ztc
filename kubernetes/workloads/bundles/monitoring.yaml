@@ -17,13 +17,13 @@ documentation:
   summary: "Deploys comprehensive service monitoring with enhanced ZTC dashboard integration"
   use_case: "Perfect for homelab operators who want professional service monitoring with the ZTC dashboard"
   access_urls:
-    - "http://homelab.lan - ZTC Dashboard (automatically available)"
+    - "http://homelab.lan - ZTC Dashboard (automatically available with core system)"
     - "http://status.homelab.lan - Service monitoring and uptime tracking"
   post_install:
     - "Configure Uptime Kuma to monitor your essential services"
-    - "Access the main ZTC dashboard at http://homelab.lan for service directory"
+    - "The ZTC dashboard at http://homelab.lan provides automatic service directory"
     - "Uptime Kuma provides detailed monitoring and status pages"
-    - "ZTC dashboard automatically shows Uptime Kuma status"
+    - "ZTC dashboard automatically discovers and shows Uptime Kuma status"
   
 resource_requirements:
   total_memory: "128Mi"

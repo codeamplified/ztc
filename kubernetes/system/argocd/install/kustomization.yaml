@@ -20,3 +20,17 @@ patches:
         path: /data
         value:
           server.insecure: "true"
+  - target:
+      kind: Service
+      name: argocd-server
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          ztc.homelab/homepage-enabled: "true"
+          homepage.dev/enabled: "true"
+          homepage.dev/name: "ArgoCD"
+          homepage.dev/description: "GitOps continuous deployment"
+          homepage.dev/group: "Core Infrastructure"
+          homepage.dev/icon: "argocd"
+          homepage.dev/href: "http://argocd.homelab.lan"

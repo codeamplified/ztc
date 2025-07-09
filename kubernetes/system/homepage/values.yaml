@@ -16,7 +16,7 @@ homepage:
   # Container Configuration
   image:
     repository: "ghcr.io/gethomepage/homepage"
-    tag: "v0.9.2"
+    tag: "v1.3.2"
     pullPolicy: "IfNotPresent"
   
   puid: 1000
@@ -38,75 +38,48 @@ homepage:
       style: "row"
       columns: 2
   
-  # Pre-configured ZTC Services
+  # ZTC Core Services with widgets for status monitoring
   services:
-    # Core Infrastructure Services
     - name: "Core Infrastructure"
       services:
         - name: "Gitea"
           icon: "gitea"
           href: "http://gitea.homelab.lan"
-          description: "Git server with container registry"
+          description: "Git server and container registry"
           widget:
             type: "gitea"
             url: "http://gitea-http.gitea.svc.cluster.local:3000"
-            username: "{{HOMEPAGE_VAR_GITEA_USER}}"
-            token: "{{HOMEPAGE_VAR_GITEA_TOKEN}}"
-            
+            key: "{{HOMEPAGE_VAR_GITEA_TOKEN}}"
         - name: "ArgoCD"
-          icon: "argocd"
+          icon: "argocd" 
           href: "http://argocd.homelab.lan"
           description: "GitOps continuous deployment"
           widget:
             type: "argocd"
             url: "http://argocd-server.argocd.svc.cluster.local"
             username: "admin"
-            password: "{{HOMEPAGE_VAR_ARGOCD_PASSWORD}}"
-            
+            password: "{{HOMEPAGE_VAR_ARGOCD_TOKEN}}"
         - name: "Grafana"
           icon: "grafana"
-          href: "http://grafana.homelab.lan"
+          href: "http://grafana.homelab.lan" 
           description: "Monitoring and observability"
           widget:
             type: "grafana"
-            url: "http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local"
+            url: "http://monitoring-grafana.monitoring.svc.cluster.local"
             username: "admin"
-            password: "{{HOMEPAGE_VAR_GRAFANA_PASSWORD}}"
+            password: "{{HOMEPAGE_VAR_GRAFANA_TOKEN}}"
 
-    # Application Services (Dynamic based on deployments)
-    - name: "Applications"
-      services:
-        - name: "Service Discovery"
-          icon: "kubernetes"
-          description: "Automatically discovers deployed workloads"
-          widget:
-            type: "kubernetes"
-            cluster:
-              show: true
-              cpu: true
-              memory: true
-              showLabel: true
-              label: "cluster"
-            nodes:
-              show: true
-              cpu: true
-              memory: true
-              showLabel: true
-
-  # Widgets for cluster overview
+  # ZTC Dashboard widgets with cluster status
   widgets:
     - kubernetes:
         cluster:
           show: true
           cpu: true
           memory: true
-          showLabel: true
-          label: "cluster"
         nodes:
           show: true
           cpu: true
           memory: true
-          showLabel: true
     - search:
         provider: "duckduckgo"
         target: "_blank"
@@ -116,19 +89,11 @@ homepage:
           timeStyle: "short"
           dateStyle: "short"
           hourCycle: "h23"
-
-  # Quick access bookmarks
-  bookmarks:
-    - ZTC Resources:
-        - name: "ZTC Documentation"
-          abbr: "DOC"
-          href: "https://github.com/skol/ztc"
-        - name: "Kubernetes Dashboard"
-          abbr: "K8S"
-          href: "http://argocd.homelab.lan"
-        - name: "Container Registry"
-          abbr: "REG"
-          href: "http://gitea.homelab.lan"
+    - resources:
+        backend: "kubernetes"
+        expanded: true
+        cpu: true
+        memory: true
 
   # Network Configuration
   ingress:
@@ -136,7 +101,6 @@ homepage:
     className: "traefik"
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: "web"
-      traefik.ingress.kubernetes.io/router.rule: "Host(`homelab.lan`)"
     hosts:
       - host: "homelab.lan"  # Root domain entry point
         paths:
@@ -147,10 +111,10 @@ homepage:
   # Resource Configuration
   resources:
     requests:
-      memory: "64Mi"
+      memory: "128Mi"
       cpu: "50m"
     limits:
-      memory: "128Mi"
+      memory: "256Mi"
       cpu: "200m"
 
   # Security Configuration
@@ -180,9 +144,9 @@ homepage:
       timeoutSeconds: 5
       failureThreshold: 3
 
-  # Persistence (optional)
+  # Persistence - DISABLED for config hot-reload support
   persistence:
-    enabled: true
+    enabled: false
     storageClass: "local-path"
     size: "1Gi"
     accessModes:
@@ -192,29 +156,33 @@ homepage:
   rbac:
     enabled: true
 
-  # Additional environment variables for service discovery
+  # Additional environment variables for service discovery and config
+  # We now explicitly map secret keys to the variables Homepage expects.
   extraEnv:
-    - name: "HOMEPAGE_VAR_GITEA_USER"
-      valueFrom:
-        secretKeyRef:
-          name: "gitea-admin-secret"
-          key: "username"
-          optional: true
+    - name: "HOMEPAGE_CONFIG_DIR"
+      value: "/app/config"
+    - name: "HOMEPAGE_LOG_LEVEL" 
+      value: "debug"
+    - name: "HOMEPAGE_ALLOWED_HOSTS"
+      value: "homelab.lan"
+      
+    # Gitea API Token
     - name: "HOMEPAGE_VAR_GITEA_TOKEN"
       valueFrom:
         secretKeyRef:
-          name: "homepage-tokens"
-          key: "gitea-token"
-          optional: true
-    - name: "HOMEPAGE_VAR_ARGOCD_PASSWORD"
+          name: ztc-homepage-api-tokens
+          key: GITEA_TOKEN
+
+    # ArgoCD API Token
+    - name: "HOMEPAGE_VAR_ARGOCD_TOKEN"
       valueFrom:
         secretKeyRef:
-          name: "argocd-initial-admin-secret"
-          key: "password"
-          optional: true
-    - name: "HOMEPAGE_VAR_GRAFANA_PASSWORD"
+          name: ztc-homepage-api-tokens
+          key: ARGOCD_TOKEN
+          
+    # Grafana API Token
+    - name: "HOMEPAGE_VAR_GRAFANA_TOKEN"
       valueFrom:
         secretKeyRef:
-          name: "grafana-admin-secret"
-          key: "admin-password"
-          optional: true
+          name: ztc-homepage-api-tokens
+          key: GRAFANA_TOKEN

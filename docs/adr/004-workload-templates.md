@@ -242,7 +242,7 @@ defaults:
 metadata:
   name: homepage
   description: "Modern dashboard for organizing homelab services"
-  namespace: homepage
+  namespace: {{ .Release.Namespace }}
   category: dashboard
   
 defaults:

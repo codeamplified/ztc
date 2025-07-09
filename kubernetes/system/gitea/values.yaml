@@ -93,6 +93,15 @@ gitea:
     http:
       type: ClusterIP
       port: 3000
+      annotations:
+        # Homepage service discovery
+        ztc.homelab/homepage-enabled: "true"
+        homepage.dev/enabled: "true"
+        homepage.dev/name: "Gitea"
+        homepage.dev/description: "Git server and container registry"
+        homepage.dev/group: "Core Infrastructure"
+        homepage.dev/icon: "gitea"
+        homepage.dev/href: "http://gitea.homelab.lan"
     ssh:
       type: NodePort
       port: 22

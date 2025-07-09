@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "ztc-homepage.fullname" . }}
-  namespace: homepage
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "ztc-homepage.labels" . | nindent 4 }}
 spec:
@@ -19,7 +19,27 @@ spec:
     spec:
       securityContext:
         {{- toYaml .Values.homepage.podSecurityContext | nindent 8 }}
+      {{- if .Values.homepage.rbac.enabled }}
       serviceAccountName: {{ include "ztc-homepage.fullname" . }}
+      {{- end }}
+      initContainers:
+      - name: config-setup
+        image: busybox:1.36
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Copying configuration files..."
+          cp /config-source/* /config-target/ 2>/dev/null || true
+          echo "Configuration files copied successfully"
+          ls -la /config-target/
+        volumeMounts:
+        - name: config-source
+          mountPath: /config-source
+        - name: config-writable
+          mountPath: /config-target
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
       containers:
       - name: homepage
         image: "{{ .Values.homepage.image.repository }}:{{ .Values.homepage.image.tag }}"
@@ -40,16 +60,13 @@ spec:
         {{- if .Values.homepage.extraEnv }}
         {{- toYaml .Values.homepage.extraEnv | nindent 8 }}
         {{- end }}
-        volumeMounts:
-        - name: config
-          mountPath: /app/config
-          readOnly: true
-        - name: logs
-          mountPath: /app/config/logs
-        {{- if .Values.homepage.persistence.enabled }}
-        - name: data
-          mountPath: /app/config/data
+        {{- if .Values.homepage.extraEnvFrom }}
+        envFrom:
+        {{- toYaml .Values.homepage.extraEnvFrom | nindent 8 }}
         {{- end }}
+        volumeMounts:
+        - name: config-writable
+          mountPath: /app/config
         resources:
           {{- toYaml .Values.homepage.resources | nindent 10 }}
         livenessProbe:
@@ -71,13 +88,8 @@ spec:
         securityContext:
           {{- toYaml .Values.homepage.securityContext | nindent 10 }}
       volumes:
-      - name: config
+      - name: config-source
         configMap:
-          name: homepage-config
-      - name: logs
+          name: {{ include "ztc-homepage.fullname" . }}-config
+      - name: config-writable
         emptyDir: {}
-      {{- if .Values.homepage.persistence.enabled }}
-      - name: data
-        persistentVolumeClaim:
-          claimName: {{ include "ztc-homepage.fullname" . }}-data
-      {{- end }}

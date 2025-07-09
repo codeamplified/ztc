@@ -6,8 +6,8 @@
 set -euo pipefail
 
 # Import shared libraries
-source "$(dirname "${BASH_SOURCE[0]}")/lib/constants.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/lib/logging.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/constants.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/logging.sh"
 
 main() {
     log_info "Downloading Ubuntu Server ${UBUNTU_VERSION} ISO..."

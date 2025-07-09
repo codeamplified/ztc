@@ -102,7 +102,7 @@ Workloads are automatically deployed via ArgoCD when manifests are committed to 
 
 - \`make deploy-n8n\` - Deploy n8n workflow automation
 - \`make deploy-uptime-kuma\` - Deploy Uptime Kuma monitoring
-- \`make deploy-homepage\` - Deploy Homepage dashboard
+- Homepage dashboard is automatically available at http://homelab.lan
 - \`make deploy-vaultwarden\` - Deploy Vaultwarden password manager
 - \`make deploy-code-server\` - Deploy Code Server IDE
 

@@ -15,7 +15,7 @@ RESET='\033[0m'
 # Configuration
 BUNDLE_DIR="kubernetes/workloads/bundles"
 WORKLOAD_DIR="kubernetes/workloads/templates"
-DEPLOY_SCRIPT="provisioning/lib/deploy-workload.sh"
+DEPLOY_SCRIPT="scripts/workloads/deploy-workload.sh"
 
 # Help function
 show_help() {

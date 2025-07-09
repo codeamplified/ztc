@@ -8,9 +8,9 @@ readonly UBUNTU_RELEASE_URL="https://releases.ubuntu.com/${UBUNTU_VERSION%.*}"
 readonly UBUNTU_ISO_URL="${UBUNTU_RELEASE_URL}/${UBUNTU_ISO_NAME}"
 
 # Directory Paths
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly DOWNLOAD_DIR="${SCRIPT_DIR}/downloads"
-readonly TEMPLATE_DIR="${SCRIPT_DIR}/cloud-init"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+readonly DOWNLOAD_DIR="${SCRIPT_DIR}/provisioning/downloads"
+readonly TEMPLATE_DIR="${SCRIPT_DIR}/provisioning/cloud-init"
 
 # SSH Configuration
 readonly DEFAULT_SSH_KEY_ED25519="${HOME}/.ssh/id_ed25519.pub"

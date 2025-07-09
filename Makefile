@@ -26,8 +26,8 @@ check: ## Check prerequisites and system readiness
 	@echo "$(GREEN)✅ Prerequisites check complete$(RESET)"
 
 prepare: ## Interactive wizard to prepare infrastructure secrets and prerequisites
-	@chmod +x provisioning/lib/setup-wizard.sh
-	@./provisioning/lib/setup-wizard.sh
+	@chmod +x scripts/setup/setup-wizard.sh
+	@./scripts/setup/setup-wizard.sh
 
 trust-hosts: ## Scan and trust SSH host keys for all nodes in the inventory
 	@echo "$(CYAN)Scanning and trusting SSH host keys...$(RESET)"
@@ -98,8 +98,8 @@ copy-kubeconfig: ## Copy kubeconfig from master node to local kubectl config
 
 post-cluster-setup: ## Create sealed secrets for applications
 	@echo "$(CYAN)Creating application sealed secrets...$(RESET)"
-	@chmod +x provisioning/lib/post-cluster-setup.sh
-	@./provisioning/lib/post-cluster-setup.sh
+	@chmod +x scripts/setup/post-cluster-setup.sh
+	@./scripts/setup/post-cluster-setup.sh
 
 ##@ Infrastructure Deployment
 
@@ -193,12 +193,19 @@ gitea-stack: ## Deploy Gitea Git server for private workloads
 	@echo "$(GREEN)✅ Gitea Git server deployed$(RESET)"
 	@echo "$(CYAN)Access Gitea UI: http://gitea.homelab.lan$(RESET)"
 	@echo "$(CYAN)SSH clone: git clone git@gitea.homelab.lan:30022/user/repo.git$(RESET)"
-	@echo "$(YELLOW)Default admin: ztc-admin / changeme123 (change after first login)$(RESET)"
+	@echo "$(CYAN)Getting admin credentials...$(RESET)"
+	@if kubectl get secret -n gitea gitea-admin-secret >/dev/null 2>&1; then \
+		GITEA_USER=$$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.username}' | base64 -d 2>/dev/null || echo "ztc-admin"); \
+		GITEA_PASSWORD=$$(kubectl get secret -n gitea gitea-admin-secret -o jsonpath='{.data.password}' | base64 -d 2>/dev/null || echo "[Retrieving...]"); \
+		echo "$(GREEN)Admin credentials: $$GITEA_USER / $$GITEA_PASSWORD$(RESET)"; \
+	else \
+		echo "$(YELLOW)⚠️  Credentials not ready yet. Use 'make show-credentials SERVICE=gitea' in a moment$(RESET)"; \
+	fi
 
 setup-gitea-repos: ## Setup required Gitea repositories after deployment
 	@echo "$(CYAN)Setting up Gitea repositories...$(RESET)"
-	@chmod +x provisioning/lib/setup-gitea-repos.sh
-	@./provisioning/lib/setup-gitea-repos.sh
+	@chmod +x scripts/gitea/setup-gitea-repos.sh
+	@./scripts/gitea/setup-gitea-repos.sh
 
 homepage-stack: ## Deploy Homepage entry point dashboard
 	@echo "$(CYAN)Deploying ZTC Homepage dashboard...$(RESET)"
@@ -503,32 +510,32 @@ registry-info: ## Show ZTC container registry information
 ##@ Workload Bundles
 
 deploy-bundle-starter: ## Deploy starter bundle - essential homelab services
-	@chmod +x provisioning/lib/deploy-bundle.sh
-	@./provisioning/lib/deploy-bundle.sh starter
+	@chmod +x scripts/workloads/deploy-bundle.sh
+	@./scripts/workloads/deploy-bundle.sh starter
 
 deploy-bundle-monitoring: ## Deploy monitoring bundle - comprehensive monitoring solution
-	@chmod +x provisioning/lib/deploy-bundle.sh
-	@./provisioning/lib/deploy-bundle.sh monitoring
+	@chmod +x scripts/workloads/deploy-bundle.sh
+	@./scripts/workloads/deploy-bundle.sh monitoring
 
 deploy-bundle-productivity: ## Deploy productivity bundle - development and automation tools
-	@chmod +x provisioning/lib/deploy-bundle.sh
-	@./provisioning/lib/deploy-bundle.sh productivity
+	@chmod +x scripts/workloads/deploy-bundle.sh
+	@./scripts/workloads/deploy-bundle.sh productivity
 
 deploy-bundle-security: ## Deploy security bundle - password management and security tools
-	@chmod +x provisioning/lib/deploy-bundle.sh
-	@./provisioning/lib/deploy-bundle.sh security
+	@chmod +x scripts/workloads/deploy-bundle.sh
+	@./scripts/workloads/deploy-bundle.sh security
 
 deploy-bundle-development: ## Deploy development bundle - complete CI/CD and development toolkit
-	@chmod +x provisioning/lib/deploy-bundle.sh
-	@./provisioning/lib/deploy-bundle.sh development
+	@chmod +x scripts/workloads/deploy-bundle.sh
+	@./scripts/workloads/deploy-bundle.sh development
 
 list-bundles: ## List all available workload bundles
-	@chmod +x provisioning/lib/deploy-bundle.sh
-	@./provisioning/lib/deploy-bundle.sh --list
+	@chmod +x scripts/workloads/deploy-bundle.sh
+	@./scripts/workloads/deploy-bundle.sh --list
 
 bundle-status: ## Show deployment status of all bundles
-	@chmod +x provisioning/lib/deploy-bundle.sh
-	@./provisioning/lib/deploy-bundle.sh --status
+	@chmod +x scripts/workloads/deploy-bundle.sh
+	@./scripts/workloads/deploy-bundle.sh --status
 
 ##@ Workload Undeployment
 
@@ -539,8 +546,8 @@ undeploy-workload: ## Undeploy specific workload (usage: make undeploy-workload 
 		kubectl get applications -n argocd -l app.kubernetes.io/part-of=ztc-workloads -o jsonpath='{range .items[*]}{.metadata.labels.ztc\.homelab/template}{"\n"}{end}' 2>/dev/null | sort -u | sed 's/^/  /' || echo "  (none)"; \
 		exit 1; \
 	fi
-	@chmod +x provisioning/lib/undeploy-workload.sh
-	@./provisioning/lib/undeploy-workload.sh $(WORKLOAD)
+	@chmod +x scripts/workloads/undeploy-workload.sh
+	@./scripts/workloads/undeploy-workload.sh $(WORKLOAD)
 
 
 # Helper function to deploy workloads with override support
@@ -555,7 +562,7 @@ define deploy_workload
 	$(if $(CPU_LIMIT),export OVERRIDE_CPU_LIMIT="$(CPU_LIMIT)";) \
 	$(if $(ADMIN_TOKEN),export OVERRIDE_ADMIN_TOKEN="$(ADMIN_TOKEN)";) \
 	$(if $(PASSWORD),export OVERRIDE_PASSWORD="$(PASSWORD)";) \
-	./provisioning/lib/deploy-workload.sh $(1)
+	./scripts/workloads/deploy-workload.sh $(1)
 endef
 
 # Helper function to deploy custom applications with app-specific overrides
@@ -575,7 +582,7 @@ define deploy_custom_app
 	$(if $(CPU_REQUEST),export OVERRIDE_CPU_REQUEST="$(CPU_REQUEST)";) \
 	$(if $(CPU_LIMIT),export OVERRIDE_CPU_LIMIT="$(CPU_LIMIT)";) \
 	export OVERRIDE_APP_NAME="$(1)"; \
-	./provisioning/lib/deploy-workload.sh custom-app
+	./scripts/workloads/deploy-workload.sh custom-app
 endef
 
 list-workloads: ## List all deployed workloads
@@ -641,10 +648,10 @@ autoinstall-usb: ## Create autoinstall USB (usage: make autoinstall-usb DEVICE=/
 	fi
 	@if [ -n "$(HOSTNAME)" ] && [ -n "$(IP_OCTET)" ]; then \
 		echo "$(CYAN)Creating autoinstall USB for $(HOSTNAME) (192.168.50.$(IP_OCTET))...$(RESET)"; \
-		cd provisioning && ./create-autoinstall-usb.sh -k $(SSH_KEY) $(if $(PASSWORD),-p $(PASSWORD)) $(DEVICE) $(HOSTNAME) $(IP_OCTET); \
+		./scripts/provisioning/create-autoinstall-usb.sh -k $(SSH_KEY) $(if $(PASSWORD),-p $(PASSWORD)) $(DEVICE) $(HOSTNAME) $(IP_OCTET); \
 	else \
 		echo "$(CYAN)Creating autoinstall USB (interactive mode)...$(RESET)"; \
-		cd provisioning && ./create-autoinstall-usb.sh -k $(SSH_KEY) $(if $(PASSWORD),-p $(PASSWORD)) $(DEVICE); \
+		./scripts/provisioning/create-autoinstall-usb.sh -k $(SSH_KEY) $(if $(PASSWORD),-p $(PASSWORD)) $(DEVICE); \
 	fi
 
 cidata-iso: ## Create only cloud-init ISO (usage: make cidata-iso HOSTNAME=k3s-master IP_OCTET=10 [PASSWORD=mypass])
@@ -655,7 +662,7 @@ cidata-iso: ## Create only cloud-init ISO (usage: make cidata-iso HOSTNAME=k3s-m
 		exit 1; \
 	fi
 	@echo "$(CYAN)Creating cloud-init ISO for $(HOSTNAME) (192.168.50.$(IP_OCTET))...$(RESET)"
-	@cd provisioning && ./create-autoinstall-usb.sh --cidata-only -k $(SSH_KEY) $(if $(PASSWORD),-p $(PASSWORD)) $(HOSTNAME) $(IP_OCTET)
+	@./scripts/provisioning/create-autoinstall-usb.sh --cidata-only -k $(SSH_KEY) $(if $(PASSWORD),-p $(PASSWORD)) $(HOSTNAME) $(IP_OCTET)
 
 cidata-usb: ## Create cidata ISO and write to USB in one step (usage: make cidata-usb DEVICE=/dev/sdc HOSTNAME=k3s-worker-01 IP_OCTET=11)
 	@if [ -z "$(DEVICE)" ] || [ -z "$(HOSTNAME)" ] || [ -z "$(IP_OCTET)" ]; then \
@@ -667,7 +674,7 @@ cidata-usb: ## Create cidata ISO and write to USB in one step (usage: make cidat
 		exit 1; \
 	fi
 	@echo "$(CYAN)Creating and writing cidata to USB $(DEVICE) for $(HOSTNAME) (192.168.50.$(IP_OCTET))...$(RESET)"
-	@cd provisioning && ./create-autoinstall-usb.sh --cidata-usb $(DEVICE) -k $(SSH_KEY) $(if $(PASSWORD),-p $(PASSWORD)) $(HOSTNAME) $(IP_OCTET)
+	@./scripts/provisioning/create-autoinstall-usb.sh --cidata-usb $(DEVICE) -k $(SSH_KEY) $(if $(PASSWORD),-p $(PASSWORD)) $(HOSTNAME) $(IP_OCTET)
 
 usb-list: ## List available USB devices
 	@echo "$(CYAN)Available block devices:$(RESET)"
@@ -818,7 +825,6 @@ help: ## Display this help
 	@echo "$(GREEN)📱 Private Workloads:$(RESET)"
 	@echo "  make deploy-n8n              # Deploy workflow automation"
 	@echo "  make deploy-uptime-kuma      # Deploy service monitoring"
-	@echo "  make deploy-homepage         # Deploy service dashboard"
 	@echo "  make deploy-code-server      # Deploy VS Code in browser"
 	@echo "  make undeploy-workload WORKLOAD=n8n  # Remove workload"
 	@echo "  make list-workloads          # List deployed workloads"

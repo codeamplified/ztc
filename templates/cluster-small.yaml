@@ -1,0 +1,144 @@
+# Zero Touch Cluster Configuration - Small Cluster Template
+# Optimized for: 2-3 node clusters, development/testing, minimal resources
+# Storage: Local-path only (no shared storage)
+# Recommended for: Learning, development, testing environments
+
+cluster:
+  name: "ztc-small"
+  description: "Small ZTC cluster for development and testing"
+  version: "1.0.0"
+
+network:
+  subnet: "192.168.50.0/24"
+  dns:
+    enabled: true
+    server_ip: "192.168.50.20"
+    domain: "homelab.lan"
+    upstreams:
+      - "8.8.8.8"
+      - "1.1.1.1"
+
+nodes:
+  ssh:
+    key_path: "~/.ssh/id_ed25519.pub"
+    username: "ubuntu"
+    
+  cluster_nodes:
+    k3s-master:
+      ip: "192.168.50.10"
+      role: "master"
+      resources:
+        cpu: "2"
+        memory: "2Gi"
+    k3s-worker-01:
+      ip: "192.168.50.11"
+      role: "worker"
+      resources:
+        cpu: "1"
+        memory: "2Gi"
+  
+  storage_node:
+    k8s-storage:
+      ip: "192.168.50.20"
+      role: "storage"
+      resources:
+        cpu: "1"
+        memory: "1Gi"
+        storage: "50Gi"
+
+storage:
+  strategy: "local-only"
+  default_class: "local-path"
+  
+  local_path:
+    enabled: true
+    is_default: true
+  
+  nfs:
+    enabled: false
+  
+  longhorn:
+    enabled: false
+
+components:
+  sealed_secrets:
+    enabled: true
+  
+  argocd:
+    enabled: true
+    namespace: "argocd"
+  
+  monitoring:
+    enabled: true
+    namespace: "monitoring"
+    components:
+      prometheus: true
+      grafana: true
+      alertmanager: false  # Disabled to save resources
+    resources:
+      prometheus:
+        memory_limit: "1Gi"
+        storage_size: "10Gi"
+      grafana:
+        memory_limit: "128Mi"
+  
+  gitea:
+    enabled: true
+    namespace: "gitea"
+    features:
+      container_registry: false  # Disabled to save resources
+      actions_runner: false
+    resources:
+      memory_limit: "256Mi"
+      storage_size: "5Gi"
+  
+  homepage:
+    enabled: true
+    namespace: "homepage"
+    features:
+      service_discovery: true
+      cluster_metrics: true
+
+workloads:
+  auto_deploy_bundles:
+    - "starter"  # Just homepage + uptime monitoring
+  
+  templates:
+    default_storage_class: "local-path"
+    default_memory_limit: "128Mi"
+    default_cpu_limit: "100m"
+
+deployment:
+  phases:
+    infrastructure: true
+    secrets: true
+    networking: true
+    storage: true
+    system_components: true
+    gitops: true
+    workloads: true
+  
+  options:
+    wait_for_ready: true
+    timeout_minutes: 10
+    retry_failed: true
+    backup_on_success: true
+
+advanced:
+  ansible:
+    inventory_path: "ansible/inventory/hosts.ini"
+    vault_password_file: ".ansible-vault-password"
+    
+  kubernetes:
+    version: "latest"
+    container_runtime: "containerd"
+    
+  security:
+    auto_generate_passwords: true
+    password_length: 24
+    enable_rbac: true
+    
+  backup:
+    auto_backup_secrets: true
+    backup_location: "."
+    retention_days: 7

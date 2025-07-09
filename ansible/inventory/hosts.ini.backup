@@ -1,6 +1,5 @@
 # Homelab Ansible Inventory
-# Generated from cluster.yaml configuration on Wed 09 Jul 2025 11:26:33 PM CEST
-# DO NOT EDIT MANUALLY - Regenerate with: scripts/lib/generate-inventory.sh
+# Update IP addresses to match your actual network configuration
 
 [control]
 # This is your workstation/control node - not part of the cluster
@@ -13,13 +12,14 @@ k3s-master ansible_host=192.168.50.10 ansible_user=ubuntu
 [k3s_workers]
 # k3s worker nodes
 k3s-worker-01 ansible_host=192.168.50.11 ansible_user=ubuntu
-k3s-worker-02 ansible_host=192.168.50.12 ansible_user=ubuntu
+k3s-worker-02 ansible_host=192.168.50.12 ansible_user=ubuntu  
 k3s-worker-03 ansible_host=192.168.50.13 ansible_user=ubuntu
 
 [k8s_storage]
 # Dedicated Kubernetes storage node
 k8s-storage ansible_host=192.168.50.20 ansible_user=ubuntu
 
+# Group definitions for easier management
 [k3s_cluster:children]
 k3s_master
 k3s_workers
@@ -28,7 +28,6 @@ k3s_workers
 k3s_cluster
 k8s_storage
 
-[all_nodes:vars]
-ansible_ssh_private_key_file=~/.ssh/id_ed25519.pub
-ansible_ssh_common_args='-o StrictHostKeyChecking=no'
-ansible_python_interpreter=/usr/bin/python3
+[homelab:children]
+control
+all_nodes 

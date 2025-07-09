@@ -23,7 +23,29 @@ check: ## Check prerequisites and system readiness
 	@command -v ansible-vault >/dev/null || (echo "$(RED)❌ Ansible Vault not available$(RESET)" && exit 1)
 	@command -v kubectl >/dev/null || echo "$(YELLOW)⚠️  kubectl not available (will be configured after cluster deployment)$(RESET)"
 	@command -v helm >/dev/null || (echo "$(RED)❌ Helm not installed$(RESET)" && exit 1)
+	@command -v yq >/dev/null || (echo "$(RED)❌ yq not installed (required for configuration parsing)$(RESET)" && exit 1)
 	@echo "$(GREEN)✅ Prerequisites check complete$(RESET)"
+
+validate-config: ## Validate cluster configuration before deployment
+	@echo "$(CYAN)🔍 Validating cluster configuration...$(RESET)"
+	@if [ ! -f "cluster.yaml" ]; then \
+		echo "$(RED)❌ cluster.yaml not found$(RESET)"; \
+		echo "$(YELLOW)💡 Run 'make prepare' to generate cluster configuration$(RESET)"; \
+		exit 1; \
+	fi
+	@chmod +x scripts/lib/config-reader.sh
+	@./scripts/lib/config-reader.sh validate
+	@echo "$(CYAN)📋 Configuration Summary:$(RESET)"
+	@./scripts/lib/config-reader.sh summary
+	@echo ""
+	@echo "$(YELLOW)🚀 Deployment will proceed with the above configuration$(RESET)"
+	@echo "$(YELLOW)💡 To modify: edit cluster.yaml or run 'make prepare'$(RESET)"
+
+generate-inventory: ## Generate Ansible inventory from cluster configuration
+	@echo "$(CYAN)🔄 Generating Ansible inventory from cluster configuration...$(RESET)"
+	@chmod +x scripts/lib/generate-inventory.sh
+	@./scripts/lib/generate-inventory.sh update
+	@echo "$(GREEN)✅ Inventory generated from cluster.yaml$(RESET)"
 
 prepare: ## Interactive wizard to prepare infrastructure secrets and prerequisites
 	@chmod +x scripts/setup/setup-wizard.sh
@@ -127,7 +149,7 @@ dns-status: ## Check DNS server status and health
 		echo "$(RED)❌ DNS service is not running or storage node unreachable$(RESET)"; \
 	fi
 
-setup: check deploy-storage-server cluster copy-kubeconfig install-sealed-secrets storage post-cluster-setup deploy-dns system-components setup-gitea-repos argocd ## Deploy complete Zero Touch Cluster infrastructure with GitOps
+setup: check validate-config generate-inventory deploy-storage-server cluster copy-kubeconfig install-sealed-secrets storage post-cluster-setup deploy-dns system-components setup-gitea-repos argocd auto-deploy-workloads ## Deploy complete Zero Touch Cluster infrastructure with GitOps
 	@echo "$(GREEN)✅ Complete Zero Touch Cluster infrastructure deployed!$(RESET)"
 	@echo "$(CYAN)🔐 Access credentials via Vaultwarden: make credentials$(RESET)"
 	@echo "$(CYAN)Access ArgoCD UI: kubectl port-forward svc/argocd-server -n argocd 8080:80$(RESET)"
@@ -139,10 +161,42 @@ setup: check deploy-storage-server cluster copy-kubeconfig install-sealed-secret
 
 ##@ System Components (Helm Charts)
 
-system-components: monitoring-stack gitea-stack homepage-stack ## Deploy all system components
-	@echo "$(GREEN)✅ All system components deployed$(RESET)"
+system-components: ## Deploy system components based on cluster configuration
+	@echo "$(CYAN)Deploying system components based on cluster configuration...$(RESET)"
+	@chmod +x scripts/lib/config-reader.sh
+	@MONITORING_ENABLED=$$(./scripts/lib/config-reader.sh get components.monitoring.enabled 2>/dev/null || echo "true"); \
+	GITEA_ENABLED=$$(./scripts/lib/config-reader.sh get components.gitea.enabled 2>/dev/null || echo "true"); \
+	HOMEPAGE_ENABLED=$$(./scripts/lib/config-reader.sh get components.homepage.enabled 2>/dev/null || echo "true"); \
+	echo "$(CYAN)Components to deploy: Monitoring=$$MONITORING_ENABLED, Gitea=$$GITEA_ENABLED, Homepage=$$HOMEPAGE_ENABLED$(RESET)"; \
+	if [ "$$MONITORING_ENABLED" = "true" ]; then \
+		echo "$(CYAN)Deploying monitoring stack...$(RESET)"; \
+		$(MAKE) monitoring-stack; \
+	else \
+		echo "$(YELLOW)⏩ Monitoring stack disabled in configuration$(RESET)"; \
+	fi; \
+	if [ "$$GITEA_ENABLED" = "true" ]; then \
+		echo "$(CYAN)Deploying Gitea stack...$(RESET)"; \
+		$(MAKE) gitea-stack; \
+	else \
+		echo "$(YELLOW)⏩ Gitea stack disabled in configuration$(RESET)"; \
+	fi; \
+	if [ "$$HOMEPAGE_ENABLED" = "true" ]; then \
+		echo "$(CYAN)Deploying homepage stack...$(RESET)"; \
+		$(MAKE) homepage-stack; \
+	else \
+		echo "$(YELLOW)⏩ Homepage stack disabled in configuration$(RESET)"; \
+	fi
+	@echo "$(GREEN)✅ System components deployment completed$(RESET)"
 
 monitoring-stack: ## Deploy monitoring stack (Prometheus, Grafana, AlertManager)
+	@echo "$(CYAN)Checking if monitoring stack is enabled...$(RESET)"
+	@chmod +x scripts/lib/config-reader.sh
+	@MONITORING_ENABLED=$$(./scripts/lib/config-reader.sh get components.monitoring.enabled 2>/dev/null || echo "true"); \
+	if [ "$$MONITORING_ENABLED" != "true" ]; then \
+		echo "$(YELLOW)⏩ Monitoring stack disabled in cluster configuration$(RESET)"; \
+		echo "$(YELLOW)💡 To enable: set components.monitoring.enabled=true in cluster.yaml$(RESET)"; \
+		exit 0; \
+	fi
 	@echo "$(CYAN)Deploying monitoring stack...$(RESET)"
 	@if [ ! -f kubernetes/system/monitoring/values-secret.yaml ]; then \
 		echo "$(YELLOW)⚠️  Creating values-secret.yaml from template...$(RESET)"; \
@@ -161,21 +215,46 @@ storage: ## Deploy storage components (Usage: make storage [NFS=false] [LONGHORN
 	@echo "$(CYAN)Deploying storage stack...$(RESET)"
 	@command -v helm >/dev/null || (echo "$(RED)❌ Helm not installed$(RESET)" && exit 1)
 	@kubectl cluster-info >/dev/null 2>&1 || (echo "$(RED)❌ Cluster not accessible. Run 'make copy-kubeconfig' first$(RESET)" && exit 1)
-	@echo "$(CYAN)Options: NFS=$(if $(NFS),$(NFS),enabled), LONGHORN=$(if $(LONGHORN),$(LONGHORN),disabled)$(RESET)"
-	@if [ "$(LONGHORN)" = "true" ]; then \
+	@chmod +x scripts/lib/config-reader.sh
+	@STORAGE_STRATEGY=$$(./scripts/lib/config-reader.sh get storage.strategy 2>/dev/null || echo "hybrid"); \
+	NFS_ENABLED=$$(./scripts/lib/config-reader.sh get storage.nfs.enabled 2>/dev/null || echo "true"); \
+	LONGHORN_ENABLED=$$(./scripts/lib/config-reader.sh get storage.longhorn.enabled 2>/dev/null || echo "false"); \
+	DEFAULT_CLASS=$$(./scripts/lib/config-reader.sh get storage.default_class 2>/dev/null || echo "local-path"); \
+	NFS_IP=$$(./scripts/lib/config-reader.sh get storage.nfs.server.ip 2>/dev/null || echo "192.168.50.20"); \
+	NFS_PATH=$$(./scripts/lib/config-reader.sh get storage.nfs.server.path 2>/dev/null || echo "/export/k8s"); \
+	LONGHORN_REPLICAS=$$(./scripts/lib/config-reader.sh get storage.longhorn.replica_count 2>/dev/null || echo "3"); \
+	if [ -n "$(NFS)" ]; then NFS_ENABLED="$(NFS)"; fi; \
+	if [ -n "$(LONGHORN)" ]; then LONGHORN_ENABLED="$(LONGHORN)"; fi; \
+	echo "$(CYAN)Configuration: Strategy=$$STORAGE_STRATEGY, Default=$$DEFAULT_CLASS$(RESET)"; \
+	echo "$(CYAN)Options: NFS=$$NFS_ENABLED, LONGHORN=$$LONGHORN_ENABLED$(RESET)"; \
+	if [ "$$LONGHORN_ENABLED" = "true" ]; then \
 		echo "$(YELLOW)⚠️  Longhorn requires open-iscsi on all nodes$(RESET)"; \
 		echo "$(YELLOW)⚠️  Ensure nodes have been provisioned with Longhorn support$(RESET)"; \
-	fi
+	fi; \
 	helm upgrade --install storage ./kubernetes/system/storage \
 		--namespace kube-system \
 		--values ./kubernetes/system/storage/values.yaml \
-		$(if $(filter false,$(NFS)),--set nfs.enabled=false) \
-		$(if $(filter true,$(LONGHORN)),--set longhorn.enabled=true) \
+		--set global.defaultStorageClass="$$DEFAULT_CLASS" \
+		--set nfs.enabled="$$NFS_ENABLED" \
+		--set nfs.server.ip="$$NFS_IP" \
+		--set nfs.server.path="$$NFS_PATH" \
+		--set longhorn.enabled="$$LONGHORN_ENABLED" \
+		--set longhorn.config.defaultReplicaCount="$$LONGHORN_REPLICAS" \
+		--set longhorn.config.defaultStorageClass.isDefaultClass=$$([ "$$DEFAULT_CLASS" = "longhorn" ] && echo "true" || echo "false") \
+		--set nfs.storageClass.isDefaultClass=$$([ "$$DEFAULT_CLASS" = "nfs-client" ] && echo "true" || echo "false") \
 		--wait --timeout 5m
 	@echo "$(GREEN)✅ Storage stack deployed$(RESET)"
 
 
 gitea-stack: ## Deploy Gitea Git server for private workloads
+	@echo "$(CYAN)Checking if Gitea stack is enabled...$(RESET)"
+	@chmod +x scripts/lib/config-reader.sh
+	@GITEA_ENABLED=$$(./scripts/lib/config-reader.sh get components.gitea.enabled 2>/dev/null || echo "true"); \
+	if [ "$$GITEA_ENABLED" != "true" ]; then \
+		echo "$(YELLOW)⏩ Gitea stack disabled in cluster configuration$(RESET)"; \
+		echo "$(YELLOW)💡 To enable: set components.gitea.enabled=true in cluster.yaml$(RESET)"; \
+		exit 0; \
+	fi
 	@echo "$(CYAN)Deploying Gitea Git server...$(RESET)"
 	@if [ ! -f kubernetes/system/gitea/values-secret.yaml ]; then \
 		echo "$(YELLOW)⚠️  Creating values-secret.yaml from template...$(RESET)"; \
@@ -203,11 +282,26 @@ gitea-stack: ## Deploy Gitea Git server for private workloads
 	fi
 
 setup-gitea-repos: ## Setup required Gitea repositories after deployment
+	@echo "$(CYAN)Checking if Gitea is enabled for repository setup...$(RESET)"
+	@chmod +x scripts/lib/config-reader.sh
+	@GITEA_ENABLED=$$(./scripts/lib/config-reader.sh get components.gitea.enabled 2>/dev/null || echo "true"); \
+	if [ "$$GITEA_ENABLED" != "true" ]; then \
+		echo "$(YELLOW)⏩ Gitea repository setup skipped (Gitea disabled in configuration)$(RESET)"; \
+		exit 0; \
+	fi
 	@echo "$(CYAN)Setting up Gitea repositories...$(RESET)"
 	@chmod +x scripts/gitea/setup-gitea-repos.sh
 	@./scripts/gitea/setup-gitea-repos.sh
 
 homepage-stack: ## Deploy Homepage entry point dashboard
+	@echo "$(CYAN)Checking if Homepage stack is enabled...$(RESET)"
+	@chmod +x scripts/lib/config-reader.sh
+	@HOMEPAGE_ENABLED=$$(./scripts/lib/config-reader.sh get components.homepage.enabled 2>/dev/null || echo "true"); \
+	if [ "$$HOMEPAGE_ENABLED" != "true" ]; then \
+		echo "$(YELLOW)⏩ Homepage stack disabled in cluster configuration$(RESET)"; \
+		echo "$(YELLOW)💡 To enable: set components.homepage.enabled=true in cluster.yaml$(RESET)"; \
+		exit 0; \
+	fi
 	@echo "$(CYAN)Deploying ZTC Homepage dashboard...$(RESET)"
 	@echo "$(CYAN)Installing Homepage entry point (root domain)...$(RESET)"
 	helm upgrade --install homepage ./kubernetes/system/homepage \
@@ -536,6 +630,11 @@ list-bundles: ## List all available workload bundles
 bundle-status: ## Show deployment status of all bundles
 	@chmod +x scripts/workloads/deploy-bundle.sh
 	@./scripts/workloads/deploy-bundle.sh --status
+
+auto-deploy-workloads: ## Auto-deploy workload bundles based on cluster configuration
+	@echo "$(CYAN)🚀 Auto-deploying workload bundles from configuration...$(RESET)"
+	@chmod +x scripts/workloads/auto-deploy-bundles.sh
+	@./scripts/workloads/auto-deploy-bundles.sh auto-deploy
 
 ##@ Workload Undeployment
 

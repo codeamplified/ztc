@@ -1,0 +1,269 @@
+#!/bin/bash
+
+# generate-inventory.sh - Generate Ansible inventory from cluster.yaml configuration
+# This script converts cluster.yaml node definitions to Ansible inventory format
+
+set -euo pipefail
+
+# Source configuration reader utilities
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/config-reader.sh"
+
+# Default paths
+INVENTORY_CONFIG_FILE="cluster.yaml"
+INVENTORY_FILE="ansible/inventory/hosts.ini"
+
+# Colors for output
+GEN_CYAN='\033[36m'
+GEN_GREEN='\033[32m'
+GEN_YELLOW='\033[33m'
+GEN_RED='\033[31m'
+GEN_RESET='\033[0m'
+
+# Function to generate inventory from configuration
+generate_inventory() {
+    local config_file="${1:-$INVENTORY_CONFIG_FILE}"
+    local inventory_file="${2:-$INVENTORY_FILE}"
+    
+    echo -e "${GEN_CYAN}🔄 Generating Ansible inventory from configuration...${GEN_RESET}"
+    
+    # Validate configuration exists
+    if ! get_config_file "$config_file" >/dev/null; then
+        echo -e "${GEN_RED}❌ Configuration file not found: $config_file${GEN_RESET}" >&2
+        return 1
+    fi
+    
+    # Get SSH configuration
+    local ssh_user ssh_key_path
+    ssh_user=$(config_get_default "nodes.ssh.username" "ubuntu" "$config_file")
+    ssh_key_path=$(config_get_default "nodes.ssh.key_path" "~/.ssh/id_ed25519" "$config_file")
+    
+    # Create inventory directory if it doesn't exist
+    mkdir -p "$(dirname "$inventory_file")"
+    
+    # Generate inventory header
+    cat > "$inventory_file" << EOF
+# Homelab Ansible Inventory
+# Generated from cluster.yaml configuration on $(date)
+# DO NOT EDIT MANUALLY - Regenerate with: scripts/lib/generate-inventory.sh
+
+[control]
+# This is your workstation/control node - not part of the cluster
+localhost ansible_connection=local
+
+EOF
+    
+    # Generate k3s master section
+    echo "[k3s_master]" >> "$inventory_file"
+    echo "# k3s control plane node" >> "$inventory_file"
+    
+    local nodes master_found=false
+    nodes=$(config_get_keys "nodes.cluster_nodes" "$config_file")
+    while read -r node; do
+        [[ -z "$node" ]] && continue
+        local role ip
+        role=$(config_get "nodes.cluster_nodes.$node.role" "$config_file")
+        ip=$(config_get "nodes.cluster_nodes.$node.ip" "$config_file")
+        
+        if [[ "$role" == "master" ]]; then
+            echo "$node ansible_host=$ip ansible_user=$ssh_user" >> "$inventory_file"
+            master_found=true
+        fi
+    done <<< "$nodes"
+    
+    if [[ "$master_found" != "true" ]]; then
+        echo -e "${GEN_YELLOW}⚠️  No master node found in configuration${GEN_RESET}" >&2
+    fi
+    
+    echo "" >> "$inventory_file"
+    
+    # Generate k3s workers section
+    echo "[k3s_workers]" >> "$inventory_file"
+    echo "# k3s worker nodes" >> "$inventory_file"
+    
+    nodes=$(config_get_keys "nodes.cluster_nodes" "$config_file")
+    while read -r node; do
+        [[ -z "$node" ]] && continue
+        local role ip
+        role=$(config_get "nodes.cluster_nodes.$node.role" "$config_file")
+        ip=$(config_get "nodes.cluster_nodes.$node.ip" "$config_file")
+        
+        if [[ "$role" == "worker" ]]; then
+            echo "$node ansible_host=$ip ansible_user=$ssh_user" >> "$inventory_file"
+        fi
+    done <<< "$nodes"
+    
+    echo "" >> "$inventory_file"
+    
+    # Generate storage section
+    echo "[k8s_storage]" >> "$inventory_file"
+    echo "# Dedicated Kubernetes storage node" >> "$inventory_file"
+    
+    if config_has "nodes.storage_node" "$config_file"; then
+        local storage_nodes
+        storage_nodes=$(config_get_keys "nodes.storage_node" "$config_file")
+        while read -r node; do
+            [[ -z "$node" ]] && continue
+            local ip
+            ip=$(config_get "nodes.storage_node.$node.ip" "$config_file")
+            echo "$node ansible_host=$ip ansible_user=$ssh_user" >> "$inventory_file"
+        done <<< "$storage_nodes"
+    fi
+    
+    echo "" >> "$inventory_file"
+    
+    # Generate combined groups
+    cat >> "$inventory_file" << EOF
+[k3s_cluster:children]
+k3s_master
+k3s_workers
+
+[all_nodes:children]
+k3s_cluster
+k8s_storage
+
+[all_nodes:vars]
+ansible_ssh_private_key_file=$ssh_key_path
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+ansible_python_interpreter=/usr/bin/python3
+EOF
+    
+    echo -e "${GEN_GREEN}✅ Inventory generated: $inventory_file${GEN_RESET}"
+    
+    # Show summary
+    echo -e "${GEN_CYAN}📋 Generated inventory summary:${GEN_RESET}"
+    local master_count worker_count storage_count
+    master_count=$(grep -c "ansible_host=" "$inventory_file" | grep -A 10 "\[k3s_master\]" | grep -c "ansible_host=" || echo "0")
+    worker_count=$(grep -A 20 "\[k3s_workers\]" "$inventory_file" | grep -c "ansible_host=" || echo "0")
+    storage_count=$(grep -A 10 "\[k8s_storage\]" "$inventory_file" | grep -c "ansible_host=" || echo "0")
+    
+    echo "  Master nodes: $master_count"
+    echo "  Worker nodes: $worker_count"
+    echo "  Storage nodes: $storage_count"
+    echo "  SSH user: $ssh_user"
+    echo "  SSH key: $ssh_key_path"
+}
+
+# Function to validate generated inventory
+validate_inventory() {
+    local inventory_file="${1:-$INVENTORY_FILE}"
+    
+    echo -e "${GEN_CYAN}🔍 Validating generated inventory...${GEN_RESET}"
+    
+    if [[ ! -f "$inventory_file" ]]; then
+        echo -e "${GEN_RED}❌ Inventory file not found: $inventory_file${GEN_RESET}" >&2
+        return 1
+    fi
+    
+    # Check for required sections
+    local required_sections=("k3s_master" "k3s_workers" "k8s_storage")
+    for section in "${required_sections[@]}"; do
+        if ! grep -q "\\[$section\\]" "$inventory_file"; then
+            echo -e "${GEN_RED}❌ Missing section: $section${GEN_RESET}" >&2
+            return 1
+        fi
+    done
+    
+    # Check for at least one master node
+    if ! grep -A 5 "\\[k3s_master\\]" "$inventory_file" | grep -q "ansible_host="; then
+        echo -e "${GEN_RED}❌ No master node defined${GEN_RESET}" >&2
+        return 1
+    fi
+    
+    echo -e "${GEN_GREEN}✅ Inventory validation passed${GEN_RESET}"
+    return 0
+}
+
+# Function to show inventory diff
+show_inventory_diff() {
+    local new_inventory_file="${1:-$INVENTORY_FILE}"
+    local backup_file="${new_inventory_file}.backup"
+    
+    if [[ -f "$backup_file" ]]; then
+        echo -e "${GEN_CYAN}📋 Inventory changes:${GEN_RESET}"
+        if command -v diff >/dev/null 2>&1; then
+            diff -u "$backup_file" "$new_inventory_file" || true
+        else
+            echo -e "${GEN_YELLOW}⚠️  diff command not available${GEN_RESET}"
+        fi
+    else
+        echo -e "${GEN_YELLOW}⚠️  No backup file found for comparison${GEN_RESET}"
+    fi
+}
+
+# Function to backup existing inventory
+backup_inventory() {
+    local inventory_file="${1:-$INVENTORY_FILE}"
+    
+    if [[ -f "$inventory_file" ]]; then
+        local backup_file="${inventory_file}.backup.$(date +%Y%m%d-%H%M%S)"
+        cp "$inventory_file" "$backup_file"
+        echo -e "${GEN_YELLOW}📦 Backup created: $backup_file${GEN_RESET}"
+        
+        # Also create a simple .backup for diff
+        cp "$inventory_file" "${inventory_file}.backup"
+    fi
+}
+
+# Function to update inventory with configuration changes
+update_inventory() {
+    local config_file="${1:-$INVENTORY_CONFIG_FILE}"
+    local inventory_file="${2:-$INVENTORY_FILE}"
+    
+    echo -e "${GEN_CYAN}🔄 Updating inventory from configuration...${GEN_RESET}"
+    
+    # Backup existing inventory
+    backup_inventory "$inventory_file"
+    
+    # Generate new inventory
+    generate_inventory "$config_file" "$inventory_file"
+    
+    # Validate the result
+    if validate_inventory "$inventory_file"; then
+        echo -e "${GEN_GREEN}✅ Inventory updated successfully${GEN_RESET}"
+        show_inventory_diff "$inventory_file"
+    else
+        echo -e "${GEN_RED}❌ Generated inventory is invalid${GEN_RESET}" >&2
+        return 1
+    fi
+}
+
+# If script is run directly, provide command-line interface
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    case "${1:-help}" in
+        "generate")
+            generate_inventory "${2:-}" "${3:-}"
+            ;;
+        "validate")
+            validate_inventory "${2:-}"
+            ;;
+        "update")
+            update_inventory "${2:-}" "${3:-}"
+            ;;
+        "diff")
+            show_inventory_diff "${2:-}"
+            ;;
+        "backup")
+            backup_inventory "${2:-}"
+            ;;
+        "help"|*)
+            echo "ZTC Inventory Generator"
+            echo ""
+            echo "Usage: $0 <command> [arguments]"
+            echo ""
+            echo "Commands:"
+            echo "  generate [config] [inventory]  Generate inventory from configuration"
+            echo "  validate [inventory]           Validate inventory file"
+            echo "  update [config] [inventory]    Update inventory with backup"
+            echo "  diff [inventory]               Show changes from backup"
+            echo "  backup [inventory]             Create backup of inventory"
+            echo "  help                           Show this help"
+            echo ""
+            echo "Examples:"
+            echo "  $0 generate"
+            echo "  $0 update"
+            echo "  $0 validate"
+            echo "  $0 diff"
+            ;;
+    esac
+fi

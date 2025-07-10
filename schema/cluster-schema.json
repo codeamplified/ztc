@@ -1,0 +1,707 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zero-touch-cluster/ztc/schema/cluster-schema.json",
+  "title": "Zero Touch Cluster Configuration",
+  "description": "Configuration schema for Zero Touch Cluster deployment",
+  "type": "object",
+  "required": ["cluster", "network", "nodes", "storage", "components"],
+  "properties": {
+    "cluster": {
+      "type": "object",
+      "description": "Cluster metadata and identification",
+      "required": ["name", "description", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique cluster identifier",
+          "pattern": "^[a-z0-9-]+$",
+          "minLength": 3,
+          "maxLength": 32,
+          "examples": ["ztc-homelab", "production-cluster"]
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable cluster description",
+          "minLength": 10,
+          "maxLength": 200
+        },
+        "version": {
+          "type": "string",
+          "description": "Configuration schema version",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "default": "1.0.0"
+        }
+      },
+      "additionalProperties": false
+    },
+    "network": {
+      "type": "object",
+      "description": "Network configuration for the cluster",
+      "required": ["subnet", "dns"],
+      "properties": {
+        "subnet": {
+          "type": "string",
+          "description": "Primary cluster subnet in CIDR notation",
+          "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\/(?:[0-9]|[1-2][0-9]|3[0-2])$",
+          "examples": ["192.168.50.0/24", "10.0.0.0/24"]
+        },
+        "dns": {
+          "type": "object",
+          "description": "DNS server configuration",
+          "required": ["enabled", "server_ip", "domain"],
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable DNS server deployment",
+              "default": true
+            },
+            "server_ip": {
+              "type": "string",
+              "description": "IP address where DNS server will be deployed",
+              "format": "ipv4"
+            },
+            "domain": {
+              "type": "string",
+              "description": "Primary domain name for the cluster",
+              "pattern": "^[a-z0-9.-]+\\.[a-z]{2,}$",
+              "examples": ["homelab.lan", "cluster.local"]
+            },
+            "upstreams": {
+              "type": "array",
+              "description": "Upstream DNS servers for fallback",
+              "items": {
+                "type": "string",
+                "format": "ipv4"
+              },
+              "default": ["8.8.8.8", "1.1.1.1"],
+              "minItems": 1,
+              "maxItems": 4
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "nodes": {
+      "type": "object",
+      "description": "Node configuration and definitions",
+      "required": ["ssh", "cluster_nodes"],
+      "properties": {
+        "ssh": {
+          "type": "object",
+          "description": "SSH configuration for node access",
+          "required": ["key_path", "username"],
+          "properties": {
+            "key_path": {
+              "type": "string",
+              "description": "Path to SSH public key file",
+              "pattern": "^(~|\\/|\\.).*\\.(pub|key)$",
+              "examples": ["~/.ssh/id_ed25519.pub", "~/.ssh/id_rsa.pub"]
+            },
+            "username": {
+              "type": "string",
+              "description": "SSH username for node access",
+              "pattern": "^[a-z][a-z0-9-]*$",
+              "default": "ubuntu"
+            }
+          },
+          "additionalProperties": false
+        },
+        "cluster_nodes": {
+          "type": "object",
+          "description": "Kubernetes cluster nodes",
+          "patternProperties": {
+            "^[a-z0-9-]+$": {
+              "type": "object",
+              "required": ["ip", "role"],
+              "properties": {
+                "ip": {
+                  "type": "string",
+                  "description": "Node IP address",
+                  "format": "ipv4"
+                },
+                "role": {
+                  "type": "string",
+                  "description": "Node role in the cluster",
+                  "enum": ["master", "worker"]
+                },
+                "resources": {
+                  "type": "object",
+                  "description": "Node resource specifications",
+                  "properties": {
+                    "cpu": {
+                      "type": "string",
+                      "description": "CPU cores or allocation",
+                      "pattern": "^\\d+(\\.\\d+)?$",
+                      "examples": ["2", "4", "1.5"]
+                    },
+                    "memory": {
+                      "type": "string",
+                      "description": "Memory allocation",
+                      "pattern": "^\\d+(\\.\\d+)?(Gi|Mi|Ki)$",
+                      "examples": ["4Gi", "8Gi", "512Mi"]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false,
+          "minProperties": 1
+        },
+        "storage_node": {
+          "type": "object",
+          "description": "Dedicated storage nodes",
+          "patternProperties": {
+            "^[a-z0-9-]+$": {
+              "type": "object",
+              "required": ["ip", "role"],
+              "properties": {
+                "ip": {
+                  "type": "string",
+                  "description": "Storage node IP address",
+                  "format": "ipv4"
+                },
+                "role": {
+                  "type": "string",
+                  "description": "Node role",
+                  "enum": ["storage"]
+                },
+                "resources": {
+                  "type": "object",
+                  "description": "Storage node resource specifications",
+                  "properties": {
+                    "cpu": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?$"
+                    },
+                    "memory": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(Gi|Mi|Ki)$"
+                    },
+                    "storage": {
+                      "type": "string",
+                      "description": "Storage capacity",
+                      "pattern": "^\\d+(\\.\\d+)?(Ti|Gi|Mi)$",
+                      "examples": ["100Gi", "1Ti", "500Gi"]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "storage": {
+      "type": "object",
+      "description": "Storage system configuration",
+      "required": ["strategy", "default_class"],
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "description": "Overall storage strategy for the cluster",
+          "enum": ["local-only", "hybrid", "longhorn", "nfs-only"],
+          "default": "hybrid"
+        },
+        "default_class": {
+          "type": "string",
+          "description": "Default storage class for new PVCs",
+          "enum": ["local-path", "nfs-client", "longhorn"],
+          "default": "local-path"
+        },
+        "local_path": {
+          "type": "object",
+          "description": "Local path provisioner configuration (k3s built-in)",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "is_default": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "nfs": {
+          "type": "object",
+          "description": "NFS storage configuration",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "server": {
+              "type": "object",
+              "required": ["ip", "path"],
+              "properties": {
+                "ip": {
+                  "type": "string",
+                  "format": "ipv4"
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^\\/.*$",
+                  "examples": ["/export/k8s", "/data/kubernetes"]
+                }
+              },
+              "additionalProperties": false
+            },
+            "storage_class": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "default": "nfs-client"
+                },
+                "is_default": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "reclaim_policy": {
+                  "type": "string",
+                  "enum": ["Delete", "Retain"],
+                  "default": "Delete"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "longhorn": {
+          "type": "object",
+          "description": "Longhorn distributed storage configuration",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "replica_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "default": 3
+            },
+            "storage_class": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "default": "longhorn"
+                },
+                "is_default": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "reclaim_policy": {
+                  "type": "string",
+                  "enum": ["Delete", "Retain"],
+                  "default": "Delete"
+                }
+              },
+              "additionalProperties": false
+            },
+            "settings": {
+              "type": "object",
+              "properties": {
+                "backup_target": {
+                  "type": "string",
+                  "description": "Backup target for Longhorn volumes"
+                },
+                "default_data_path": {
+                  "type": "string",
+                  "pattern": "^\\/.*\\/$",
+                  "default": "/var/lib/longhorn/"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "components": {
+      "type": "object",
+      "description": "System components configuration",
+      "properties": {
+        "sealed_secrets": {
+          "type": "object",
+          "description": "Sealed Secrets controller for secret management",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "argocd": {
+          "type": "object",
+          "description": "ArgoCD GitOps controller",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "namespace": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]+$",
+              "default": "argocd"
+            }
+          },
+          "additionalProperties": false
+        },
+        "monitoring": {
+          "type": "object",
+          "description": "Monitoring stack (Prometheus, Grafana, AlertManager)",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "namespace": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]+$",
+              "default": "monitoring"
+            },
+            "components": {
+              "type": "object",
+              "properties": {
+                "prometheus": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "grafana": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "alertmanager": {
+                  "type": "boolean",
+                  "default": true
+                }
+              },
+              "additionalProperties": false
+            },
+            "resources": {
+              "type": "object",
+              "properties": {
+                "prometheus": {
+                  "type": "object",
+                  "properties": {
+                    "memory_limit": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(Gi|Mi)$",
+                      "default": "2Gi"
+                    },
+                    "storage_size": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(Ti|Gi)$",
+                      "default": "20Gi"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "grafana": {
+                  "type": "object",
+                  "properties": {
+                    "memory_limit": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)?(Gi|Mi)$",
+                      "default": "256Mi"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "gitea": {
+          "type": "object",
+          "description": "Gitea Git server for private repositories",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "namespace": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]+$",
+              "default": "gitea"
+            },
+            "features": {
+              "type": "object",
+              "properties": {
+                "container_registry": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "actions_runner": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "resources": {
+              "type": "object",
+              "properties": {
+                "memory_limit": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d+)?(Gi|Mi)$",
+                  "default": "512Mi"
+                },
+                "storage_size": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d+)?(Ti|Gi)$",
+                  "default": "10Gi"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "homepage": {
+          "type": "object",
+          "description": "Homepage dashboard for unified service access",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "namespace": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]+$",
+              "default": "homepage"
+            },
+            "features": {
+              "type": "object",
+              "properties": {
+                "service_discovery": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "cluster_metrics": {
+                  "type": "boolean",
+                  "default": true
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "workloads": {
+      "type": "object",
+      "description": "Workload bundles and auto-deployment configuration",
+      "properties": {
+        "auto_deploy_bundles": {
+          "type": "array",
+          "description": "List of workload bundles to deploy automatically",
+          "items": {
+            "type": "string",
+            "enum": ["starter", "monitoring", "productivity", "security", "development"]
+          },
+          "uniqueItems": true,
+          "default": []
+        },
+        "templates": {
+          "type": "object",
+          "description": "Default settings for workload templates",
+          "properties": {
+            "default_storage_class": {
+              "type": "string",
+              "enum": ["local-path", "nfs-client", "longhorn"],
+              "default": "local-path"
+            },
+            "default_memory_limit": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?(Gi|Mi)$",
+              "default": "256Mi"
+            },
+            "default_cpu_limit": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?m?$",
+              "default": "200m"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "deployment": {
+      "type": "object",
+      "description": "Deployment phases and options",
+      "properties": {
+        "phases": {
+          "type": "object",
+          "description": "Control which deployment phases are executed",
+          "properties": {
+            "infrastructure": {
+              "type": "boolean",
+              "description": "Deploy physical storage server and k3s cluster",
+              "default": true
+            },
+            "secrets": {
+              "type": "boolean",
+              "description": "Deploy sealed secrets and application credentials",
+              "default": true
+            },
+            "networking": {
+              "type": "boolean",
+              "description": "Deploy DNS server",
+              "default": true
+            },
+            "storage": {
+              "type": "boolean",
+              "description": "Deploy storage stack (NFS, Longhorn, etc.)",
+              "default": true
+            },
+            "system_components": {
+              "type": "boolean",
+              "description": "Deploy core services (monitoring, gitea, homepage)",
+              "default": true
+            },
+            "gitops": {
+              "type": "boolean",
+              "description": "Deploy ArgoCD and repository setup",
+              "default": true
+            },
+            "workloads": {
+              "type": "boolean",
+              "description": "Auto-deploy workload bundles",
+              "default": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "description": "Deployment execution options",
+          "properties": {
+            "wait_for_ready": {
+              "type": "boolean",
+              "default": true
+            },
+            "timeout_minutes": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 60,
+              "default": 15
+            },
+            "retry_failed": {
+              "type": "boolean",
+              "default": true
+            },
+            "backup_on_success": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "advanced": {
+      "type": "object",
+      "description": "Advanced configuration options",
+      "properties": {
+        "ansible": {
+          "type": "object",
+          "description": "Ansible configuration overrides",
+          "properties": {
+            "inventory_path": {
+              "type": "string",
+              "default": "ansible/inventory/hosts.ini"
+            },
+            "vault_password_file": {
+              "type": "string",
+              "default": ".ansible-vault-password"
+            }
+          },
+          "additionalProperties": false
+        },
+        "kubernetes": {
+          "type": "object",
+          "description": "Kubernetes configuration",
+          "properties": {
+            "version": {
+              "type": "string",
+              "default": "latest"
+            },
+            "container_runtime": {
+              "type": "string",
+              "enum": ["containerd", "docker"],
+              "default": "containerd"
+            }
+          },
+          "additionalProperties": false
+        },
+        "security": {
+          "type": "object",
+          "description": "Security configuration",
+          "properties": {
+            "auto_generate_passwords": {
+              "type": "boolean",
+              "default": true
+            },
+            "password_length": {
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 64,
+              "default": 32
+            },
+            "enable_rbac": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "backup": {
+          "type": "object",
+          "description": "Backup configuration",
+          "properties": {
+            "auto_backup_secrets": {
+              "type": "boolean",
+              "default": true
+            },
+            "backup_location": {
+              "type": "string",
+              "default": "."
+            },
+            "retention_days": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 30
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

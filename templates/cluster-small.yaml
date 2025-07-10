@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/cluster-schema.json
 # Zero Touch Cluster Configuration - Small Cluster Template
 # Optimized for: 2-3 node clusters, development/testing, minimal resources
 # Storage: Local-path only (no shared storage)

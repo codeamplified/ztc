@@ -1,6 +1,6 @@
 # Zero Touch Cluster Makefile
 
-.PHONY: help prepare check setup storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack longhorn-stack setup-gitea-repos homepage-stack deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-code-server deploy-bundle-starter deploy-bundle-monitoring deploy-bundle-productivity deploy-bundle-security deploy-bundle-development list-bundles bundle-status deploy-custom-app deploy-gitea-runner registry-login registry-info
+.PHONY: help prepare check setup storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack longhorn-stack setup-gitea-repos homepage-stack deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate validate-config validate-schema schema-info generate-inventory auto-deploy-workloads teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-code-server deploy-bundle-starter deploy-bundle-monitoring deploy-bundle-productivity deploy-bundle-security deploy-bundle-development list-bundles bundle-status deploy-custom-app deploy-gitea-runner registry-login registry-info
 
 # Default target
 .DEFAULT_GOAL := help
@@ -40,6 +40,16 @@ validate-config: ## Validate cluster configuration before deployment
 	@echo ""
 	@echo "$(YELLOW)🚀 Deployment will proceed with the above configuration$(RESET)"
 	@echo "$(YELLOW)💡 To modify: edit cluster.yaml or run 'make prepare'$(RESET)"
+
+validate-schema: ## Validate cluster configuration against JSON schema
+	@echo "$(CYAN)🔍 Validating cluster configuration against JSON schema...$(RESET)"
+	@chmod +x scripts/lib/validate-schema.sh
+	@./scripts/lib/validate-schema.sh validate
+
+schema-info: ## Show cluster configuration schema information
+	@echo "$(CYAN)📋 Cluster Configuration Schema Information$(RESET)"
+	@chmod +x scripts/lib/validate-schema.sh
+	@./scripts/lib/validate-schema.sh info
 
 generate-inventory: ## Generate Ansible inventory from cluster configuration
 	@echo "$(CYAN)🔄 Generating Ansible inventory from cluster configuration...$(RESET)"

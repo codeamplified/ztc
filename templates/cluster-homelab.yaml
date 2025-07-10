@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/cluster-schema.json
 # Zero Touch Cluster Configuration - Homelab Template
 # Optimized for: 4 node clusters, homelab use, balanced resources
 # Storage: Hybrid (local-path + NFS) for flexibility and shared storage

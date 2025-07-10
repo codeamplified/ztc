@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/cluster-schema.json
 # Zero Touch Cluster Configuration - Production Template
 # Optimized for: 6+ node clusters, high availability, production workloads
 # Storage: Longhorn distributed storage with local-path for performance

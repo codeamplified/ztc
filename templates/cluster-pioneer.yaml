@@ -38,9 +38,6 @@ nodes:
       resources:
         cpu: "2"
         memory: "4Gi"
-  
-  # The storage_node section is intentionally omitted for Pioneer mode.
-  # All cluster services run on the defined cluster nodes only.
 
 storage:
   strategy: "local-only"
@@ -50,10 +47,10 @@ storage:
     enabled: true
     is_default: true
   
-  nfs:
-    enabled: false
-  
   longhorn:
+    enabled: false
+
+  minio:
     enabled: false
 
 components:

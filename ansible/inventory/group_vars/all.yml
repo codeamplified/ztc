@@ -2,7 +2,7 @@
 
 # Network Configuration  
 homelab_subnet: "192.168.50.0/24"
-homelab_dns: "192.168.50.20"  # DNS server runs on storage node
+homelab_dns: "192.168.50.10"  # DNS server runs on master node
 homelab_gateway: "192.168.50.1"  # Router/gateway IP (actual TP-Link Omada router)
 
 # SSH Configuration
@@ -27,24 +27,14 @@ common_packages:
   - gnupg
   - lsb-release
 
-# Storage Configuration - Hybrid approach (local-path + optional NFS)
-k8s_storage_ip: "192.168.50.20"
-storage_type: "hybrid"  # Support both local-path and NFS
+# Storage Configuration - Hybrid approach (local-path + optional Longhorn)
+storage_type: "hybrid"  # Support both local-path and Longhorn
 
 # Local storage configuration (k3s built-in)
 local_storage_path: "/opt/local-path-provisioner"
 
-# NFS storage configuration (optional)
-nfs_enabled: true  # Set to true to enable NFS server installation
-nfs_export_path: "/export/k8s"
-
 # Longhorn storage configuration (optional)
 longhorn_enabled: false  # Set to true to enable Longhorn distributed storage
-# WARNING: no_root_squash is a security risk. It allows the root user on the client to have root access on the NFS server.
-# This is necessary for some Kubernetes provisioners, but should be used with caution in a production environment.
-nfs_export_options: "*(rw,sync,no_subtree_check,no_root_squash)"
-nfs_client_packages:
-  - nfs-common
 
 # k3s Configuration
 k3s_version: "v1.28.5+k3s1"  # Pin version to prevent drift

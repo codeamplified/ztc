@@ -209,51 +209,6 @@
           },
           "additionalProperties": false,
           "minProperties": 1
-        },
-        "storage_node": {
-          "type": "object",
-          "description": "Dedicated storage nodes",
-          "patternProperties": {
-            "^[a-z0-9-]+$": {
-              "type": "object",
-              "required": ["ip", "role"],
-              "properties": {
-                "ip": {
-                  "type": "string",
-                  "description": "Storage node IP address",
-                  "format": "ipv4"
-                },
-                "role": {
-                  "type": "string",
-                  "description": "Node role",
-                  "enum": ["storage"]
-                },
-                "resources": {
-                  "type": "object",
-                  "description": "Storage node resource specifications",
-                  "properties": {
-                    "cpu": {
-                      "type": "string",
-                      "pattern": "^\\d+(\\.\\d+)?$"
-                    },
-                    "memory": {
-                      "type": "string",
-                      "pattern": "^\\d+(\\.\\d+)?(Gi|Mi|Ki)$"
-                    },
-                    "storage": {
-                      "type": "string",
-                      "description": "Storage capacity",
-                      "pattern": "^\\d+(\\.\\d+)?(Ti|Gi|Mi)$",
-                      "examples": ["100Gi", "1Ti", "500Gi"]
-                    }
-                  },
-                  "additionalProperties": false
-                }
-              },
-              "additionalProperties": false
-            }
-          },
-          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -266,13 +221,13 @@
         "strategy": {
           "type": "string",
           "description": "Overall storage strategy for the cluster",
-          "enum": ["local-only", "hybrid", "longhorn", "nfs-only"],
+          "enum": ["local-only", "hybrid", "longhorn"],
           "default": "hybrid"
         },
         "default_class": {
           "type": "string",
           "description": "Default storage class for new PVCs",
-          "enum": ["local-path", "nfs-client", "longhorn"],
+          "enum": ["local-path", "longhorn"],
           "default": "local-path"
         },
         "local_path": {
@@ -286,52 +241,6 @@
             "is_default": {
               "type": "boolean",
               "default": true
-            }
-          },
-          "additionalProperties": false
-        },
-        "nfs": {
-          "type": "object",
-          "description": "NFS storage configuration",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "default": false
-            },
-            "server": {
-              "type": "object",
-              "required": ["ip", "path"],
-              "properties": {
-                "ip": {
-                  "type": "string",
-                  "format": "ipv4"
-                },
-                "path": {
-                  "type": "string",
-                  "pattern": "^\\/.*$",
-                  "examples": ["/export/k8s", "/data/kubernetes"]
-                }
-              },
-              "additionalProperties": false
-            },
-            "storage_class": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "default": "nfs-client"
-                },
-                "is_default": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "reclaim_policy": {
-                  "type": "string",
-                  "enum": ["Delete", "Retain"],
-                  "default": "Delete"
-                }
-              },
-              "additionalProperties": false
             }
           },
           "additionalProperties": false
@@ -587,7 +496,7 @@
           "properties": {
             "default_storage_class": {
               "type": "string",
-              "enum": ["local-path", "nfs-client", "longhorn"],
+              "enum": ["local-path", "longhorn"],
               "default": "local-path"
             },
             "default_memory_limit": {
@@ -616,7 +525,7 @@
           "properties": {
             "infrastructure": {
               "type": "boolean",
-              "description": "Deploy physical storage server and k3s cluster",
+              "description": "Deploy k3s cluster",
               "default": true
             },
             "secrets": {
@@ -631,7 +540,7 @@
             },
             "storage": {
               "type": "boolean",
-              "description": "Deploy storage stack (NFS, Longhorn, etc.)",
+              "description": "Deploy storage stack (Longhorn, etc.)",
               "default": true
             },
             "system_components": {

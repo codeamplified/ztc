@@ -135,23 +135,6 @@ EOF
     
     echo "" >> "$inventory_file"
     
-    # Generate storage section
-    echo "[k8s_storage]" >> "$inventory_file"
-    echo "# Dedicated Kubernetes storage node" >> "$inventory_file"
-    
-    if config_has "nodes.storage_node" "$config_file"; then
-        local storage_nodes
-        storage_nodes=$(config_get_keys "nodes.storage_node" "$config_file")
-        while read -r node; do
-            [[ -z "$node" ]] && continue
-            local ip
-            ip=$(config_get "nodes.storage_node.$node.ip" "$config_file")
-            echo "$node ansible_host=$ip ansible_user=$ssh_user" >> "$inventory_file"
-        done <<< "$storage_nodes"
-    fi
-    
-    echo "" >> "$inventory_file"
-    
     # Generate combined groups
     cat >> "$inventory_file" << EOF
 [k3s_cluster:children]
@@ -160,7 +143,6 @@ k3s_workers
 
 [all_nodes:children]
 k3s_cluster
-k8s_storage
 
 [all_nodes:vars]
 ansible_ssh_private_key_file=$ssh_key_path
@@ -209,14 +191,12 @@ EOF
     
     # Show summary
     echo -e "${GEN_CYAN}📋 Generated inventory summary:${GEN_RESET}"
-    local master_count worker_count storage_count
+    local master_count worker_count
     master_count=$(grep -c "ansible_host=" "$inventory_file" | grep -A 10 "\[k3s_master\]" | grep -c "ansible_host=" || echo "0")
     worker_count=$(grep -A 20 "\[k3s_workers\]" "$inventory_file" | grep -c "ansible_host=" || echo "0")
-    storage_count=$(grep -A 10 "\[k8s_storage\]" "$inventory_file" | grep -c "ansible_host=" || echo "0")
     
     echo "  Master nodes: $master_count"
     echo "  Worker nodes: $worker_count"
-    echo "  Storage nodes: $storage_count"
     echo "  SSH user: $ssh_user"
     echo "  SSH key: $ssh_key_path"
 }
@@ -233,7 +213,7 @@ validate_inventory() {
     fi
     
     # Check for required sections
-    local required_sections=("k3s_master" "k3s_workers" "k8s_storage")
+    local required_sections=("k3s_master" "k3s_workers")
     for section in "${required_sections[@]}"; do
         if ! grep -q "\\[$section\\]" "$inventory_file"; then
             echo -e "${GEN_RED}❌ Missing section: $section${GEN_RESET}" >&2

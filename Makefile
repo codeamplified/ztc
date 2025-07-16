@@ -1,6 +1,6 @@
 # Zero Touch Cluster Makefile
 
-.PHONY: help prepare prepare-auto check setup storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack longhorn-stack setup-gitea-repos homepage-stack deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate validate-config validate-schema schema-info generate-inventory auto-deploy-workloads docker-build docker-status docker-shell docker-test teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-code-server deploy-bundle-starter deploy-bundle-monitoring deploy-bundle-productivity deploy-bundle-security deploy-bundle-development list-bundles bundle-status deploy-custom-app deploy-gitea-runner registry-login registry-info
+.PHONY: help prepare prepare-auto check setup storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack longhorn-stack setup-gitea-repos homepage-stack deploy-storage enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate validate-config validate-schema schema-info generate-inventory auto-deploy-workloads docker-build docker-status docker-shell docker-test teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-code-server deploy-bundle-starter deploy-bundle-monitoring deploy-bundle-productivity deploy-bundle-security deploy-bundle-development list-bundles bundle-status deploy-custom-app deploy-gitea-runner registry-login registry-info
 
 # Default target
 .DEFAULT_GOAL := help
@@ -183,7 +183,7 @@ copy-kubeconfig: ## Copy kubeconfig from master node to local kubectl config
 		echo "  1. The k3s cluster hasn't been deployed yet (run 'make cluster')"; \
 		echo "  2. The cluster deployment failed"; \
 		echo "  3. You're running this before cluster setup"; \
-		echo "$(CYAN)💡 Correct sequence: make deploy-storage-server → make cluster → make copy-kubeconfig$(RESET)"; \
+		echo "$(CYAN)💡 Correct sequence: make cluster → make copy-kubeconfig$(RESET)"; \
 		exit 1; \
 	fi
 
@@ -193,10 +193,6 @@ post-cluster-setup: ## Create sealed secrets for applications
 	@./scripts/setup/post-cluster-setup.sh
 
 ##@ Infrastructure Deployment
-
-deploy-storage-server: check ## Setup physical storage server for Kubernetes
-	@echo "$(CYAN)Deploying physical storage server...$(RESET)"
-	cd ansible && ansible-playbook playbooks/01-k8s-storage-setup.yml
 
 cluster: check ## Setup k3s cluster
 	@echo "$(CYAN)Deploying k3s cluster...$(RESET)"
@@ -218,7 +214,7 @@ dns-status: ## Check DNS server status and health
 		echo "$(RED)❌ DNS service is not running or storage node unreachable$(RESET)"; \
 	fi
 
-setup: check validate-config generate-inventory deploy-storage-server cluster copy-kubeconfig install-sealed-secrets storage post-cluster-setup deploy-dns system-components setup-gitea-repos argocd auto-deploy-workloads ## Deploy complete Zero Touch Cluster infrastructure with GitOps
+setup: check validate-config generate-inventory cluster copy-kubeconfig install-sealed-secrets storage post-cluster-setup deploy-dns system-components setup-gitea-repos argocd auto-deploy-workloads ## Deploy complete Zero Touch Cluster infrastructure with GitOps
 	@echo "$(GREEN)✅ Complete Zero Touch Cluster infrastructure deployed!$(RESET)"
 	@echo "$(CYAN)🔐 Access credentials via Vaultwarden: make credentials$(RESET)"
 	@echo "$(CYAN)Access ArgoCD UI: kubectl port-forward svc/argocd-server -n argocd 8080:80$(RESET)"
@@ -280,22 +276,18 @@ monitoring-stack: ## Deploy monitoring stack (Prometheus, Grafana, AlertManager)
 		--wait --timeout 10m
 	@echo "$(GREEN)✅ Monitoring stack deployed$(RESET)"
 
-storage: ## Deploy storage components (Usage: make storage [NFS=false] [LONGHORN=true])
+storage: ## Deploy storage components (Usage: make storage [LONGHORN=true])
 	@echo "$(CYAN)Deploying storage stack...$(RESET)"
 	@command -v helm >/dev/null || (echo "$(RED)❌ Helm not installed$(RESET)" && exit 1)
 	@kubectl cluster-info >/dev/null 2>&1 || (echo "$(RED)❌ Cluster not accessible. Run 'make copy-kubeconfig' first$(RESET)" && exit 1)
 	@chmod +x scripts/lib/config-reader.sh
 	@STORAGE_STRATEGY=$$(./scripts/lib/config-reader.sh get storage.strategy 2>/dev/null || echo "hybrid"); \
-	NFS_ENABLED=$$(./scripts/lib/config-reader.sh get storage.nfs.enabled 2>/dev/null || echo "true"); \
 	LONGHORN_ENABLED=$$(./scripts/lib/config-reader.sh get storage.longhorn.enabled 2>/dev/null || echo "false"); \
 	DEFAULT_CLASS=$$(./scripts/lib/config-reader.sh get storage.default_class 2>/dev/null || echo "local-path"); \
-	NFS_IP=$$(./scripts/lib/config-reader.sh get storage.nfs.server.ip 2>/dev/null || echo "192.168.50.20"); \
-	NFS_PATH=$$(./scripts/lib/config-reader.sh get storage.nfs.server.path 2>/dev/null || echo "/export/k8s"); \
 	LONGHORN_REPLICAS=$$(./scripts/lib/config-reader.sh get storage.longhorn.replica_count 2>/dev/null || echo "3"); \
-	if [ -n "$(NFS)" ]; then NFS_ENABLED="$(NFS)"; fi; \
 	if [ -n "$(LONGHORN)" ]; then LONGHORN_ENABLED="$(LONGHORN)"; fi; \
 	echo "$(CYAN)Configuration: Strategy=$$STORAGE_STRATEGY, Default=$$DEFAULT_CLASS$(RESET)"; \
-	echo "$(CYAN)Options: NFS=$$NFS_ENABLED, LONGHORN=$$LONGHORN_ENABLED$(RESET)"; \
+	echo "$(CYAN)Options: LONGHORN=$$LONGHORN_ENABLED$(RESET)"; \
 	if [ "$$LONGHORN_ENABLED" = "true" ]; then \
 		echo "$(YELLOW)⚠️  Longhorn requires open-iscsi on all nodes$(RESET)"; \
 		echo "$(YELLOW)⚠️  Ensure nodes have been provisioned with Longhorn support$(RESET)"; \
@@ -304,13 +296,9 @@ storage: ## Deploy storage components (Usage: make storage [NFS=false] [LONGHORN
 		--namespace kube-system \
 		--values ./kubernetes/system/storage/values.yaml \
 		--set global.defaultStorageClass="$$DEFAULT_CLASS" \
-		--set nfs.enabled="$$NFS_ENABLED" \
-		--set nfs.server.ip="$$NFS_IP" \
-		--set nfs.server.path="$$NFS_PATH" \
 		--set longhorn.enabled="$$LONGHORN_ENABLED" \
 		--set longhorn.config.defaultReplicaCount="$$LONGHORN_REPLICAS" \
 		--set longhorn.config.defaultStorageClass.isDefaultClass=$$([ "$$DEFAULT_CLASS" = "longhorn" ] && echo "true" || echo "false") \
-		--set nfs.storageClass.isDefaultClass=$$([ "$$DEFAULT_CLASS" = "nfs-client" ] && echo "true" || echo "false") \
 		--wait --timeout 5m
 	@echo "$(GREEN)✅ Storage stack deployed$(RESET)"
 
@@ -389,7 +377,6 @@ storage-status: ## Check storage deployment status and available storage classes
 	@kubectl get storageclass 2>/dev/null || echo "$(YELLOW)⚠️  kubectl not configured or cluster not accessible$(RESET)"
 	@echo ""
 	@echo "$(CYAN)Storage Pods:$(RESET)"
-	@kubectl get pods -n kube-system -l app.kubernetes.io/name=nfs-subdir-external-provisioner 2>/dev/null || echo "$(YELLOW)⚠️  NFS provisioner not deployed$(RESET)"
 	@kubectl get pods -n longhorn-system 2>/dev/null || echo "$(YELLOW)⚠️  Longhorn not deployed$(RESET)"
 
 longhorn-stack: ## Deploy Longhorn distributed storage (for 3+ node clusters)
@@ -898,7 +885,7 @@ teardown: ## ⚠️  DESTRUCTIVE: Complete cluster teardown for development iter
 	@echo "$(RED)⚠️  WARNING: This will completely destroy the cluster and all data!$(RESET)"
 	@echo "$(YELLOW)This operation will:$(RESET)"
 	@echo "  • Uninstall k3s from all nodes"
-	@echo "  • Clean all persistent storage (NFS)"
+	@echo "  • Clean all persistent storage"
 	@echo "  • Remove local secrets and configuration files"
 	@echo "  • Clean SSH host keys"
 	@echo "  • Remove generated ISOs and backups"
@@ -921,13 +908,8 @@ teardown: ## ⚠️  DESTRUCTIVE: Complete cluster teardown for development iter
 			echo "$(YELLOW)    No k3s installation found on $${node}$(RESET)"; \
 		fi; \
 	done
-	@echo "$(CYAN)Step 2/6: Cleaning NFS storage...$(RESET)"
-	@if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no ubuntu@$$(ansible-inventory -i ansible/inventory/hosts.ini --host k8s-storage 2>/dev/null | grep ansible_host | cut -d'"' -f4) 'test -d /export/k8s' 2>/dev/null; then \
-		echo "$(CYAN)  Cleaning NFS storage directory...$(RESET)"; \
-		ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@$$(ansible-inventory -i ansible/inventory/hosts.ini --host k8s-storage 2>/dev/null | grep ansible_host | cut -d'"' -f4) 'sudo systemctl stop nfs-kernel-server 2>/dev/null; sudo rm -rf /export/k8s/* 2>/dev/null; sudo systemctl start nfs-kernel-server 2>/dev/null' || echo "$(YELLOW)  Warning: Could not clean NFS storage$(RESET)"; \
-	else \
-		echo "$(YELLOW)  No NFS storage found$(RESET)"; \
-	fi
+	@echo "$(CYAN)Step 2/6: Cleaning storage...$(RESET)"
+	@echo "$(YELLOW)  Local storage cleaned during k3s uninstall$(RESET)"
 	@echo "$(CYAN)Step 3/6: Removing local secrets and configuration...$(RESET)"
 	@rm -f ansible/inventory/secrets.yml || true
 	@rm -f .ansible-vault-password || true
@@ -936,7 +918,7 @@ teardown: ## ⚠️  DESTRUCTIVE: Complete cluster teardown for development iter
 	@echo "$(CYAN)Step 4/6: Cleaning generated files...$(RESET)"
 	@rm -f provisioning/downloads/*.iso || true
 	@echo "$(CYAN)Step 5/6: Cleaning SSH host keys...$(RESET)"
-	@for node in k3s-master k3s-worker-01 k3s-worker-02 k3s-worker-03 k8s-storage; do \
+	@for node in k3s-master k3s-worker-01 k3s-worker-02 k3s-worker-03; do \
 		node_ip=$$(ansible-inventory -i ansible/inventory/hosts.ini --host $${node} 2>/dev/null | grep ansible_host | cut -d'"' -f4); \
 		if [ -n "$${node_ip}" ]; then \
 			ssh-keygen -R $${node_ip} 2>/dev/null || true; \
@@ -952,7 +934,7 @@ teardown: ## ⚠️  DESTRUCTIVE: Complete cluster teardown for development iter
 	@echo ""
 	@echo "$(YELLOW)📋 Teardown Summary:$(RESET)"
 	@echo "  • k3s uninstalled from all nodes"
-	@echo "  • NFS storage cleaned"
+	@echo "  • Local storage cleaned"
 	@echo "  • Local secrets removed"
 	@echo "  • Generated files cleaned"
 	@echo "  • SSH host keys reset"
@@ -982,9 +964,7 @@ help: ## Display this help
 	@echo "  make backup-secrets     # Create encrypted backup"
 	@echo ""
 	@echo "$(GREEN)🏗️  Infrastructure Components:$(RESET)"
-	@echo "  make deploy-storage-server   # Setup physical storage server"
-	@echo "  make storage                 # Deploy K8s storage (local-path + NFS)"
-	@echo "  make storage NFS=false       # Deploy storage without NFS"
+	@echo "  make storage                 # Deploy K8s storage (local-path + Longhorn)"
 	@echo "  make storage LONGHORN=true   # Deploy storage with Longhorn"
 	@echo "  make storage-status          # Check storage deployment"
 	@echo "  make monitoring-stack        # Deploy monitoring (Prometheus, Grafana)"
@@ -1021,4 +1001,4 @@ help: ## Display this help
 	@echo "$(YELLOW)💡 Examples:$(RESET)"
 	@echo "  make show-credentials SERVICE=gitea   # Show specific service"
 	@echo "  make deploy-n8n STORAGE_SIZE=5Gi      # Deploy with custom storage"
-	@echo "  make storage NFS=false LONGHORN=true  # Custom storage configuration"
+	@echo "  make storage LONGHORN=true            # Custom storage configuration"

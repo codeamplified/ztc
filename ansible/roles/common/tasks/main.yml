@@ -13,15 +13,6 @@
     state: present
   become: true
 
-- name: Install NFS client packages for k8s storage (if NFS enabled)
-  apt:
-    name: "{{ nfs_client_packages }}"
-    state: present
-  become: true
-  when: 
-    - nfs_enabled | default(false)
-    - inventory_hostname in groups['k3s_master'] or inventory_hostname in groups['k3s_workers']
-
 - name: Set timezone
   timezone:
     name: "{{ timezone }}"

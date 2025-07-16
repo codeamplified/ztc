@@ -61,15 +61,6 @@ nodes:
       resources:
         cpu: "4"
         memory: "8Gi"
-  
-  storage_node:
-    k8s-storage:
-      ip: "192.168.50.20"
-      role: "storage"
-      resources:
-        cpu: "2"
-        memory: "4Gi"
-        storage: "500Gi"
 
 storage:
   strategy: "hybrid"
@@ -78,11 +69,6 @@ storage:
   local_path:
     enabled: true
     is_default: false
-  
-  nfs:
-    # NFS is disabled by default for Homesteader. Users can enable it
-    # to point to their own external NAS if desired.
-    enabled: false
   
   longhorn:
     enabled: true

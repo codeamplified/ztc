@@ -319,15 +319,6 @@ get_all_node_ips() {
         config_get "nodes.cluster_nodes.$node.ip" "$config_file"
     done <<< "$nodes"
     
-    # Get storage node IP if it exists
-    if config_has "nodes.storage_node" "$config_file"; then
-        local storage_nodes
-        storage_nodes=$(config_get_keys "nodes.storage_node" "$config_file")
-        while read -r node; do
-            [[ -z "$node" ]] && continue
-            config_get "nodes.storage_node.$node.ip" "$config_file"
-        done <<< "$storage_nodes"
-    fi
 }
 
 # Get master node IP
@@ -345,24 +336,6 @@ get_master_ip() {
             return
         fi
     done <<< "$nodes"
-}
-
-# Get storage node IP
-get_storage_ip() {
-    local config_file="${1:-$DEFAULT_CONFIG_FILE}"
-    
-    if config_has "nodes.storage_node" "$config_file"; then
-        local storage_nodes
-        storage_nodes=$(config_get_keys "nodes.storage_node" "$config_file")
-        while read -r node; do
-            [[ -z "$node" ]] && continue
-            config_get "nodes.storage_node.$node.ip" "$config_file"
-            return
-        done <<< "$storage_nodes"
-    fi
-    
-    # Fallback to hardcoded value if not in config
-    echo "192.168.50.20"
 }
 
 # If script is run directly, provide command-line interface

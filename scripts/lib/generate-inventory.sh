@@ -53,11 +53,9 @@ localhost ansible_connection=local
 
 EOF
     
-    # Generate k3s master section
-    echo "[k3s_master]" >> "$inventory_file"
-    echo "# k3s control plane node" >> "$inventory_file"
-    
-    local nodes master_found=false
+    # Collect master nodes first to determine HA setup
+    local master_nodes=()
+    local nodes
     nodes=$(config_get_keys "nodes.cluster_nodes" "$config_file")
     while read -r node; do
         [[ -z "$node" ]] && continue
@@ -66,16 +64,58 @@ EOF
         ip=$(config_get "nodes.cluster_nodes.$node.ip" "$config_file")
         
         if [[ "$role" == "master" ]]; then
-            echo "$node ansible_host=$ip ansible_user=$ssh_user" >> "$inventory_file"
-            master_found=true
+            master_nodes+=("$node:$ip")
         fi
     done <<< "$nodes"
     
-    if [[ "$master_found" != "true" ]]; then
+    local master_count=${#master_nodes[@]}
+    local is_ha_cluster=false
+    
+    if [[ $master_count -eq 0 ]]; then
         echo -e "${GEN_YELLOW}⚠️  No master node found in configuration${GEN_RESET}" >&2
+    elif [[ $master_count -gt 1 ]]; then
+        is_ha_cluster=true
+        echo -e "${GEN_CYAN}🔀 Detected HA cluster with $master_count masters${GEN_RESET}"
     fi
     
-    echo "" >> "$inventory_file"
+    if [[ "$is_ha_cluster" == "true" ]]; then
+        # Generate HA master sections
+        echo "[k3s_master_first]" >> "$inventory_file"
+        echo "# k3s first master node (cluster initialization)" >> "$inventory_file"
+        local first_master="${master_nodes[0]}"
+        local node_name="${first_master%%:*}"
+        local node_ip="${first_master##*:}"
+        echo "$node_name ansible_host=$node_ip ansible_user=$ssh_user k3s_node_role=master_first" >> "$inventory_file"
+        echo "" >> "$inventory_file"
+        
+        echo "[k3s_master_additional]" >> "$inventory_file"
+        echo "# k3s additional master nodes (join existing cluster)" >> "$inventory_file"
+        for ((i=1; i<master_count; i++)); do
+            local master_node="${master_nodes[$i]}"
+            local node_name="${master_node%%:*}"
+            local node_ip="${master_node##*:}"
+            echo "$node_name ansible_host=$node_ip ansible_user=$ssh_user k3s_node_role=master_additional" >> "$inventory_file"
+        done
+        echo "" >> "$inventory_file"
+        
+        echo "[k3s_master:children]" >> "$inventory_file"
+        echo "# All k3s master nodes" >> "$inventory_file"
+        echo "k3s_master_first" >> "$inventory_file"
+        echo "k3s_master_additional" >> "$inventory_file"
+        echo "" >> "$inventory_file"
+    else
+        # Generate single master section
+        echo "[k3s_master]" >> "$inventory_file"
+        echo "# k3s control plane node" >> "$inventory_file"
+        
+        if [[ $master_count -eq 1 ]]; then
+            local master_node="${master_nodes[0]}"
+            local node_name="${master_node%%:*}"
+            local node_ip="${master_node##*:}"
+            echo "$node_name ansible_host=$node_ip ansible_user=$ssh_user k3s_node_role=master_single" >> "$inventory_file"
+        fi
+        echo "" >> "$inventory_file"
+    fi
     
     # Generate k3s workers section
     echo "[k3s_workers]" >> "$inventory_file"
@@ -127,6 +167,43 @@ ansible_ssh_private_key_file=$ssh_key_path
 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 ansible_python_interpreter=/usr/bin/python3
 EOF
+    
+    # Add HA-specific variables if multi-master cluster
+    if [[ "$is_ha_cluster" == "true" ]]; then
+        echo "" >> "$inventory_file"
+        echo "[k3s_cluster:vars]" >> "$inventory_file"
+        echo "# High Availability configuration" >> "$inventory_file"
+        echo "k3s_ha_cluster=true" >> "$inventory_file"
+        echo "k3s_master_count=$master_count" >> "$inventory_file"
+        
+        # Check for HA configuration in cluster.yaml
+        local ha_enabled virtual_ip lb_type lb_port
+        ha_enabled=$(config_get_default "cluster.ha_config.enabled" "true" "$config_file")
+        virtual_ip=$(config_get_default "cluster.ha_config.virtual_ip" "" "$config_file")
+        lb_type=$(config_get_default "cluster.ha_config.load_balancer.type" "kube-vip" "$config_file")
+        lb_port=$(config_get_default "cluster.ha_config.load_balancer.port" "6443" "$config_file")
+        
+        echo "k3s_ha_enabled=$ha_enabled" >> "$inventory_file"
+        [[ -n "$virtual_ip" ]] && echo "k3s_virtual_ip=$virtual_ip" >> "$inventory_file"
+        echo "k3s_load_balancer_type=$lb_type" >> "$inventory_file"
+        echo "k3s_load_balancer_port=$lb_port" >> "$inventory_file"
+        
+        # Add first master IP for join operations
+        local first_master_ip="${master_nodes[0]##*:}"
+        echo "k3s_first_master_ip=$first_master_ip" >> "$inventory_file"
+        
+        # Recommend odd number of masters for proper quorum
+        if [[ $((master_count % 2)) -eq 0 ]]; then
+            echo -e "${GEN_YELLOW}⚠️  Warning: Even number of masters ($master_count) detected${GEN_RESET}"
+            echo -e "${GEN_YELLOW}   Consider using odd number (3, 5, 7) for proper etcd quorum${GEN_RESET}"
+        fi
+    else
+        echo "" >> "$inventory_file"
+        echo "[k3s_cluster:vars]" >> "$inventory_file"
+        echo "# Single master configuration" >> "$inventory_file"
+        echo "k3s_ha_cluster=false" >> "$inventory_file"
+        echo "k3s_master_count=1" >> "$inventory_file"
+    fi
     
     echo -e "${GEN_GREEN}✅ Inventory generated: $inventory_file${GEN_RESET}"
     

@@ -44,7 +44,9 @@ The ZTC dashboard automatically discovers deployed workloads and provides a cons
 # STREAMLINED WORKFLOW (Recommended):
 # 1. Check prerequisites and prepare infrastructure secrets
 make check
-make prepare
+make prepare-auto        # Non-interactive setup with homelab template + defaults
+# OR for customization:
+make prepare            # Interactive wizard for custom configuration
 
 # 2. Create autoinstall USB drives for each node
 make autoinstall-usb DEVICE=/dev/sdb HOSTNAME=k3s-master IP_OCTET=10
@@ -148,6 +150,40 @@ make validate      # Validate Kubernetes manifests
 # Test connectivity to nodes
 make ping          # Test Ansible connectivity to all nodes
 ```
+
+### Cluster Configuration Commands
+
+**Prepare Commands** - Infrastructure setup with different modes:
+```bash
+# Quick setup with sensible defaults (recommended for most users)
+make prepare-auto         # Non-interactive: uses homelab template
+                         # - 4 nodes (1 master, 3 workers) + storage node
+                         # - Hybrid storage (local-path + NFS)
+                         # - All core components enabled
+                         # - Starter bundle auto-deployed
+
+# Interactive customization (for advanced users)
+make prepare             # Interactive wizard with full customization
+                         # - Choose node count and IPs
+                         # - Select storage strategy
+                         # - Enable/disable components
+                         # - Configure workload bundles
+
+# Template-based setup (alternative approach)
+./scripts/lib/config-reader.sh templates     # List available templates
+./scripts/lib/config-reader.sh use-template homelab  # Use specific template
+make prepare             # Still need to run prepare for secrets
+
+# Configuration validation and management
+make validate-config     # Validate cluster.yaml against schema
+./scripts/lib/config-reader.sh summary      # Show configuration overview
+./scripts/lib/config-reader.sh validate     # Comprehensive validation
+```
+
+**When to use each prepare command:**
+- **`prepare-auto`**: CI/CD pipelines, quick demos, containerized environments
+- **`prepare`**: Custom network ranges, specific component selection, learning
+- **Template approach**: Starting point for manual configuration editing
 
 ### Development Workflow
 

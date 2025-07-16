@@ -1,0 +1,10 @@
+id: ztc-1752616699
+started_at: 2025-07-15T21:58:19.797044992Z
+current_phase: welcome
+completed_steps:
+    - configuration
+cluster_config: cluster.yaml
+usb_devices: []
+deployment_log: ""
+progress: {}
+metadata: {}

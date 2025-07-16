@@ -1,6 +1,6 @@
 # Zero Touch Cluster Makefile
 
-.PHONY: help prepare check setup storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack longhorn-stack setup-gitea-repos homepage-stack deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate validate-config validate-schema schema-info generate-inventory auto-deploy-workloads teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-code-server deploy-bundle-starter deploy-bundle-monitoring deploy-bundle-productivity deploy-bundle-security deploy-bundle-development list-bundles bundle-status deploy-custom-app deploy-gitea-runner registry-login registry-info
+.PHONY: help prepare prepare-auto check setup storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack longhorn-stack setup-gitea-repos homepage-stack deploy-storage deploy-nfs enable-nfs disable-nfs enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate validate-config validate-schema schema-info generate-inventory auto-deploy-workloads docker-build docker-status docker-shell docker-test teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-code-server deploy-bundle-starter deploy-bundle-monitoring deploy-bundle-productivity deploy-bundle-security deploy-bundle-development list-bundles bundle-status deploy-custom-app deploy-gitea-runner registry-login registry-info
 
 # Default target
 .DEFAULT_GOAL := help
@@ -19,12 +19,21 @@ SSH_KEY := $(HOME)/.ssh/id_ed25519.pub
 
 check: ## Check prerequisites and system readiness
 	@echo "$(CYAN)Checking prerequisites...$(RESET)"
-	@command -v ansible >/dev/null || (echo "$(RED)❌ Ansible not installed$(RESET)" && exit 1)
-	@command -v ansible-vault >/dev/null || (echo "$(RED)❌ Ansible Vault not available$(RESET)" && exit 1)
+	@if command -v docker >/dev/null 2>&1; then \
+		echo "$(GREEN)✅ Docker available - can use containerized tools$(RESET)"; \
+		echo "$(CYAN)💡 Use './ztc <command>' for zero-dependency execution$(RESET)"; \
+	elif command -v podman >/dev/null 2>&1; then \
+		echo "$(GREEN)✅ Podman available - can use containerized tools$(RESET)"; \
+		echo "$(CYAN)💡 Use './ztc <command>' for zero-dependency execution$(RESET)"; \
+	else \
+		echo "$(YELLOW)⚠️  Docker/Podman not found - checking native tools...$(RESET)"; \
+		command -v ansible >/dev/null || (echo "$(RED)❌ Ansible not installed$(RESET)" && exit 1); \
+		command -v ansible-vault >/dev/null || (echo "$(RED)❌ Ansible Vault not available$(RESET)" && exit 1); \
+		command -v helm >/dev/null || (echo "$(RED)❌ Helm not installed$(RESET)" && exit 1); \
+		command -v yq >/dev/null || (echo "$(RED)❌ yq not installed (required for configuration parsing)$(RESET)" && exit 1); \
+		echo "$(GREEN)✅ Native tools check complete$(RESET)"; \
+	fi
 	@command -v kubectl >/dev/null || echo "$(YELLOW)⚠️  kubectl not available (will be configured after cluster deployment)$(RESET)"
-	@command -v helm >/dev/null || (echo "$(RED)❌ Helm not installed$(RESET)" && exit 1)
-	@command -v yq >/dev/null || (echo "$(RED)❌ yq not installed (required for configuration parsing)$(RESET)" && exit 1)
-	@echo "$(GREEN)✅ Prerequisites check complete$(RESET)"
 
 validate-config: ## Validate cluster configuration before deployment
 	@echo "$(CYAN)🔍 Validating cluster configuration...$(RESET)"
@@ -51,6 +60,44 @@ schema-info: ## Show cluster configuration schema information
 	@chmod +x scripts/lib/validate-schema.sh
 	@./scripts/lib/validate-schema.sh info
 
+##@ Docker Environment
+
+docker-build: ## Build ZTC Docker image with all dependencies
+	@echo "$(CYAN)🏗️  Building ZTC Docker image...$(RESET)"
+	@if command -v docker >/dev/null 2>&1; then \
+		docker build -t ztc:latest .; \
+		echo "$(GREEN)✅ ZTC Docker image built successfully$(RESET)"; \
+		echo "$(CYAN)💡 Use './ztc <command>' to run with zero dependencies$(RESET)"; \
+	elif command -v podman >/dev/null 2>&1; then \
+		podman build -t ztc:latest .; \
+		echo "$(GREEN)✅ ZTC Docker image built successfully$(RESET)"; \
+		echo "$(CYAN)💡 Use './ztc <command>' to run with zero dependencies$(RESET)"; \
+	else \
+		echo "$(RED)❌ Docker/Podman not found$(RESET)"; \
+		echo "$(YELLOW)💡 Install Docker: https://docs.docker.com/get-docker/$(RESET)"; \
+		exit 1; \
+	fi
+
+docker-status: ## Show Docker environment status and image information
+	@echo "$(CYAN)🐳 Docker Environment Status$(RESET)"
+	@chmod +x ztc
+	@./ztc --docker-status
+
+docker-shell: ## Open interactive shell in ZTC container
+	@echo "$(CYAN)🐚 Opening interactive shell in ZTC container...$(RESET)"
+	@chmod +x ztc
+	@./ztc --docker-shell
+
+docker-test: ## Test Docker wrapper with basic commands
+	@echo "$(CYAN)🧪 Testing Docker wrapper...$(RESET)"
+	@chmod +x ztc
+	@echo "$(CYAN)Testing: ./ztc help$(RESET)"
+	@./ztc help | head -5
+	@echo ""
+	@echo "$(CYAN)Testing: ./ztc check$(RESET)"
+	@./ztc check
+	@echo "$(GREEN)✅ Docker wrapper tests passed$(RESET)"
+
 generate-inventory: ## Generate Ansible inventory from cluster configuration
 	@echo "$(CYAN)🔄 Generating Ansible inventory from cluster configuration...$(RESET)"
 	@chmod +x scripts/lib/generate-inventory.sh
@@ -60,6 +107,18 @@ generate-inventory: ## Generate Ansible inventory from cluster configuration
 prepare: ## Interactive wizard to prepare infrastructure secrets and prerequisites
 	@chmod +x scripts/setup/setup-wizard.sh
 	@./scripts/setup/setup-wizard.sh
+
+prepare-auto: ## Non-interactive preparation using homelab template with defaults
+	@echo "$(CYAN)🏗️  Auto-generating configuration using homelab template...$(RESET)"
+	@chmod +x scripts/setup/setup-wizard.sh
+	@echo | ./scripts/setup/setup-wizard.sh
+	@echo "$(GREEN)✅ Non-interactive setup complete$(RESET)"
+	@echo "$(YELLOW)💡 Edit cluster.yaml to customize before running 'make setup'$(RESET)"
+
+tui-wizard: ## Launch the TUI wizard (used by guided setup)
+	@echo "$(CYAN)🎯 TUI Wizard should be launched through guided setup$(RESET)"
+	@echo "$(YELLOW)💡 Use: ./ztc$(RESET)"
+	@echo "$(YELLOW)💡 For developer mode: ./ztc-tui$(RESET)"
 
 trust-hosts: ## Scan and trust SSH host keys for all nodes in the inventory
 	@echo "$(CYAN)Scanning and trusting SSH host keys...$(RESET)"

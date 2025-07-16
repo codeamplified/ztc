@@ -39,9 +39,15 @@ prompt_with_default() {
     local default_value="$2"
     local user_input
 
-    printf "$(CYAN "${prompt_text}") [$(YELLOW "${default_value}")]: "
-    read user_input
-    echo "${user_input:-$default_value}"
+    # Check if running in interactive terminal
+    if [[ -t 0 ]] && [[ -t 1 ]]; then
+        printf "$(CYAN "${prompt_text}") [$(YELLOW "${default_value}")]: "
+        read user_input
+        echo "${user_input:-$default_value}"
+    else
+        # Non-interactive mode - return default
+        echo "$default_value"
+    fi
 }
 
 # Function to prompt for yes/no with default
@@ -50,9 +56,15 @@ prompt_yes_no() {
     local default_value="${2:-y}"
     local user_input
 
-    printf "$(CYAN "${prompt_text}") [$(YELLOW "${default_value}")]: "
-    read user_input
-    user_input="${user_input:-$default_value}"
+    # Check if running in interactive terminal
+    if [[ -t 0 ]] && [[ -t 1 ]]; then
+        printf "$(CYAN "${prompt_text}") [$(YELLOW "${default_value}")]: "
+        read user_input
+        user_input="${user_input:-$default_value}"
+    else
+        # Non-interactive mode - return default
+        user_input="$default_value"
+    fi
     
     case "$user_input" in
         [Yy]|[Yy][Ee][Ss]) echo "true" ;;
@@ -68,24 +80,30 @@ prompt_select() {
     local options=("$@")
     local default_option="${options[0]}"
     
-    echo
-    CYAN "$prompt_text"
-    for i in "${!options[@]}"; do
-        if [[ "$i" -eq 0 ]]; then
-            YELLOW "  $((i+1)). ${options[$i]} (default)"
+    # Check if running in interactive terminal
+    if [[ -t 0 ]] && [[ -t 1 ]]; then
+        echo
+        CYAN "$prompt_text"
+        for i in "${!options[@]}"; do
+            if [[ "$i" -eq 0 ]]; then
+                YELLOW "  $((i+1)). ${options[$i]} (default)"
+            else
+                echo "  $((i+1)). ${options[$i]}"
+            fi
+        done
+        
+        printf "$(CYAN "Select option") [$(YELLOW "1")]: "
+        local user_input
+        read user_input
+        user_input="${user_input:-1}"
+        
+        if [[ "$user_input" =~ ^[0-9]+$ ]] && [[ "$user_input" -ge 1 ]] && [[ "$user_input" -le "${#options[@]}" ]]; then
+            echo "${options[$((user_input-1))]}"
         else
-            echo "  $((i+1)). ${options[$i]}"
+            echo "$default_option"
         fi
-    done
-    
-    printf "$(CYAN "Select option") [$(YELLOW "1")]: "
-    local user_input
-    read user_input
-    user_input="${user_input:-1}"
-    
-    if [[ "$user_input" =~ ^[0-9]+$ ]] && [[ "$user_input" -ge 1 ]] && [[ "$user_input" -le "${#options[@]}" ]]; then
-        echo "${options[$((user_input-1))]}"
     else
+        # Non-interactive mode - return default
         echo "$default_option"
     fi
 }
@@ -94,7 +112,29 @@ prompt_select() {
 generate_cluster_config() {
     local config_file="${1:-cluster.yaml}"
     
-    GREEN "\n--- Cluster Configuration Generator ---"
+    # Check if running in non-interactive mode
+    if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
+        GREEN "\n--- Non-Interactive Configuration Generation ---"
+        CYAN "Generating cluster.yaml using homelab template with default settings"
+        
+        # Use homelab template directly in non-interactive mode
+        local template_file="templates/cluster-homelab.yaml"
+        if [[ -f "$template_file" ]]; then
+            if [[ -f "$config_file" ]]; then
+                cp "$config_file" "${config_file}.backup.$(date +%Y%m%d-%H%M%S)"
+                YELLOW "📦 Backup created: ${config_file}.backup.$(date +%Y%m%d-%H%M%S)"
+            fi
+            cp "$template_file" "$config_file"
+            GREEN "✅ Configuration generated from homelab template"
+            return 0
+        else
+            RED "❌ Template not found, generating minimal configuration"
+            generate_minimal_config "$config_file"
+            return 0
+        fi
+    fi
+    
+    GREEN "\n--- Interactive Cluster Configuration Generator ---"
     CYAN "This will create a customized cluster.yaml configuration file."
     echo
     
@@ -239,6 +279,11 @@ generate_custom_config() {
         "nfs-only")
             storage_config="  local_path:\n    enabled: true\n    is_default: false\n  nfs:\n    enabled: true\n    server:\n      ip: \"$network_base.20\"\n      path: \"/export/k8s\"\n    storage_class:\n      is_default: true\n  longhorn:\n    enabled: false"
             ;;
+        *)
+            # Default to hybrid strategy if not specified
+            echo -e "${YELLOW}⚠️  Unknown storage strategy '$storage_strategy', using hybrid${RESET}" >&2
+            storage_config="  local_path:\n    enabled: true\n    is_default: true\n  nfs:\n    enabled: true\n    server:\n      ip: \"$network_base.20\"\n      path: \"/export/k8s\"\n  longhorn:\n    enabled: false"
+            ;;
     esac
     
     # Generate configuration file
@@ -318,6 +363,98 @@ advanced:
     auto_generate_passwords: true
     password_length: 32
 EOF
+}
+
+# Function to generate minimal configuration for non-interactive mode
+generate_minimal_config() {
+    local config_file="$1"
+    
+    cat > "$config_file" << 'EOF'
+# yaml-language-server: $schema=./schema/cluster-schema.json
+# Zero Touch Cluster Configuration - Generated (Non-Interactive)
+
+cluster:
+  name: "ztc-homelab"
+  description: "Zero Touch Cluster - Auto-generated configuration"
+  version: "1.0.0"
+
+network:
+  subnet: "192.168.50.0/24"
+  dns:
+    enabled: true
+    server_ip: "192.168.50.20"
+    domain: "homelab.lan"
+
+nodes:
+  ssh:
+    key_path: "~/.ssh/id_ed25519.pub"
+    username: "ubuntu"
+    
+  cluster_nodes:
+    k3s-master:
+      ip: "192.168.50.10"
+      role: "master"
+    k3s-worker-01:
+      ip: "192.168.50.11"
+      role: "worker"
+    k3s-worker-02:
+      ip: "192.168.50.12"
+      role: "worker"
+    k3s-worker-03:
+      ip: "192.168.50.13"
+      role: "worker"
+  
+  storage_node:
+    k8s-storage:
+      ip: "192.168.50.20"
+      role: "storage"
+
+storage:
+  strategy: "hybrid"
+  default_class: "local-path"
+  local_path:
+    enabled: true
+    is_default: true
+  nfs:
+    enabled: true
+    server:
+      ip: "192.168.50.20"
+      path: "/export/k8s"
+  longhorn:
+    enabled: false
+
+components:
+  sealed_secrets:
+    enabled: true
+  argocd:
+    enabled: true
+  monitoring:
+    enabled: true
+  gitea:
+    enabled: true
+  homepage:
+    enabled: true
+
+workloads:
+  auto_deploy_bundles: []
+
+deployment:
+  phases:
+    infrastructure: true
+    secrets: true
+    networking: true
+    storage: true
+    system_components: true
+    gitops: true
+    workloads: true
+
+advanced:
+  security:
+    auto_generate_passwords: true
+    password_length: 32
+EOF
+    
+    GREEN "✅ Minimal configuration generated"
 }
 
 # Function to customize template configuration

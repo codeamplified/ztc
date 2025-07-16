@@ -4,7 +4,7 @@
   "title": "Zero Touch Cluster Configuration",
   "description": "Configuration schema for Zero Touch Cluster deployment",
   "type": "object",
-  "required": ["cluster", "network", "nodes", "storage", "components"],
+  "required": ["cluster", "network", "nodes", "storage", "components", "workloads"],
   "properties": {
     "cluster": {
       "type": "object",
@@ -30,6 +30,64 @@
           "description": "Configuration schema version",
           "pattern": "^\\d+\\.\\d+\\.\\d+$",
           "default": "1.0.0"
+        },
+        "ha_config": {
+          "type": "object",
+          "description": "High availability configuration for multi-master setups",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable high availability mode (auto-detected if multiple masters)",
+              "default": false
+            },
+            "virtual_ip": {
+              "type": "string",
+              "description": "Virtual IP address for load balancing API server access",
+              "format": "ipv4",
+              "examples": ["192.168.50.30"]
+            },
+            "load_balancer": {
+              "type": "object",
+              "description": "Load balancer configuration for HA API server access",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Load balancer type",
+                  "enum": ["kube-vip", "haproxy", "nginx", "external"],
+                  "default": "kube-vip"
+                },
+                "port": {
+                  "type": "integer",
+                  "description": "API server port",
+                  "minimum": 1024,
+                  "maximum": 65535,
+                  "default": 6443
+                }
+              },
+              "additionalProperties": false
+            },
+            "etcd_config": {
+              "type": "object",
+              "description": "Embedded etcd configuration for HA",
+              "properties": {
+                "snapshot_count": {
+                  "type": "integer",
+                  "description": "Number of committed transactions to trigger a snapshot",
+                  "minimum": 1000,
+                  "maximum": 100000,
+                  "default": 10000
+                },
+                "heartbeat_interval": {
+                  "type": "string",
+                  "description": "Time between heartbeat messages",
+                  "pattern": "^\\d+ms$",
+                  "default": "100ms"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

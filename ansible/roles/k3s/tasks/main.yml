@@ -29,7 +29,40 @@
     mode: '0755'
   when: not k3s_installed.stat.exists
 
-- name: Install k3s server (master node)
+- name: Install k3s first master (HA cluster initialization)
+  shell: |
+    INSTALL_K3S_VERSION={{ k3s_version }} \
+    INSTALL_K3S_EXEC="--cluster-init --flannel-backend={{ k3s_flannel_backend }} --node-ip={{ ansible_host }} --flannel-iface={{ ansible_default_ipv4.interface }} --cluster-cidr={{ k3s_cluster_cidr }} --service-cidr={{ k3s_service_cidr }} --cluster-dns={{ k3s_cluster_dns }}" \
+    K3S_TOKEN={{ k3s_token }} \
+    /tmp/k3s-install.sh
+  become: true
+  when: 
+    - not k3s_installed.stat.exists or (k3s_current_version.rc == 0 and k3s_version not in k3s_current_version.stdout)
+    - inventory_hostname in groups['k3s_master_first'] | default([])
+    - k3s_ha_cluster | default(false) | bool
+  notify: restart k3s
+  register: k3s_first_master_install
+  retries: 3
+  delay: 10
+
+- name: Install k3s additional masters (join HA cluster)
+  shell: |
+    INSTALL_K3S_VERSION={{ k3s_version }} \
+    INSTALL_K3S_EXEC="--flannel-backend={{ k3s_flannel_backend }} --node-ip={{ ansible_host }} --flannel-iface={{ ansible_default_ipv4.interface }} --cluster-cidr={{ k3s_cluster_cidr }} --service-cidr={{ k3s_service_cidr }} --cluster-dns={{ k3s_cluster_dns }}" \
+    K3S_URL=https://{{ k3s_first_master_ip | default(hostvars[groups['k3s_master_first'][0]]['ansible_host']) }}:6443 \
+    K3S_TOKEN={{ k3s_token }} \
+    /tmp/k3s-install.sh
+  become: true
+  when: 
+    - not k3s_installed.stat.exists or (k3s_current_version.rc == 0 and k3s_version not in k3s_current_version.stdout)
+    - inventory_hostname in groups['k3s_master_additional'] | default([])
+    - k3s_ha_cluster | default(false) | bool
+  notify: restart k3s
+  register: k3s_additional_master_install
+  retries: 3
+  delay: 10
+
+- name: Install k3s server (single master)
   shell: |
     INSTALL_K3S_VERSION={{ k3s_version }} \
     INSTALL_K3S_EXEC="--flannel-backend={{ k3s_flannel_backend }} --node-ip={{ ansible_host }} --flannel-iface={{ ansible_default_ipv4.interface }} --cluster-cidr={{ k3s_cluster_cidr }} --service-cidr={{ k3s_service_cidr }} --cluster-dns={{ k3s_cluster_dns }}" \
@@ -38,13 +71,31 @@
   become: true
   when: 
     - not k3s_installed.stat.exists or (k3s_current_version.rc == 0 and k3s_version not in k3s_current_version.stdout)
-    - inventory_hostname in groups['k3s_master']
+    - inventory_hostname in groups['k3s_master'] | default([])
+    - not (k3s_ha_cluster | default(false) | bool)
   notify: restart k3s
   register: k3s_master_install
   retries: 3
   delay: 10
 
-- name: Install k3s agent (worker nodes)
+- name: Install k3s agent (worker nodes - HA cluster)
+  shell: |
+    INSTALL_K3S_VERSION={{ k3s_version }} \
+    INSTALL_K3S_EXEC="--node-ip={{ ansible_host }} --flannel-iface={{ ansible_default_ipv4.interface }}" \
+    K3S_URL=https://{{ k3s_virtual_ip | default(k3s_first_master_ip | default(hostvars[groups['k3s_master_first'][0]]['ansible_host'])) }}:{{ k3s_load_balancer_port | default('6443') }} \
+    K3S_TOKEN={{ k3s_token }} \
+    /tmp/k3s-install.sh
+  become: true
+  when: 
+    - not k3s_installed.stat.exists or (k3s_current_version.rc == 0 and k3s_version not in k3s_current_version.stdout)
+    - inventory_hostname in groups['k3s_workers'] | default([])
+    - k3s_ha_cluster | default(false) | bool
+  notify: restart k3s-agent
+  register: k3s_worker_install_ha
+  retries: 3
+  delay: 10
+
+- name: Install k3s agent (worker nodes - single master)
   shell: |
     INSTALL_K3S_VERSION={{ k3s_version }} \
     INSTALL_K3S_EXEC="--node-ip={{ ansible_host }} --flannel-iface={{ ansible_default_ipv4.interface }}" \
@@ -54,19 +105,23 @@
   become: true
   when: 
     - not k3s_installed.stat.exists or (k3s_current_version.rc == 0 and k3s_version not in k3s_current_version.stdout)
-    - inventory_hostname in groups['k3s_workers']
+    - inventory_hostname in groups['k3s_workers'] | default([])
+    - not (k3s_ha_cluster | default(false) | bool)
   notify: restart k3s-agent
   register: k3s_worker_install
   retries: 3
   delay: 10
 
-- name: Start and enable k3s service (master)
+- name: Start and enable k3s service (masters)
   systemd:
     name: k3s
     state: started
     enabled: true
   become: true
-  when: inventory_hostname in groups['k3s_master']
+  when: >
+    inventory_hostname in groups['k3s_master'] | default([]) or
+    inventory_hostname in groups['k3s_master_first'] | default([]) or
+    inventory_hostname in groups['k3s_master_additional'] | default([])
 
 - name: Start and enable k3s-agent service (workers)
   systemd:
@@ -76,12 +131,25 @@
   become: true
   when: inventory_hostname in groups['k3s_workers']
 
-- name: Wait for k3s to be ready
+- name: Wait for k3s to be ready (masters)
   wait_for:
     port: 6443
     host: "{{ ansible_host }}"
     timeout: 300
-  when: inventory_hostname in groups['k3s_master']
+  when: >
+    inventory_hostname in groups['k3s_master'] | default([]) or
+    inventory_hostname in groups['k3s_master_first'] | default([]) or
+    inventory_hostname in groups['k3s_master_additional'] | default([])
+
+- name: Wait for first master to be fully ready before joining additional masters
+  wait_for:
+    port: 6443
+    host: "{{ hostvars[groups['k3s_master_first'][0]]['ansible_host'] }}"
+    timeout: 300
+  when: 
+    - k3s_ha_cluster | default(false) | bool
+    - inventory_hostname in groups['k3s_master_additional'] | default([])
+  delegate_to: localhost
 
 - name: Verify k3s server is responding
   command: /usr/local/bin/k3s kubectl get nodes
@@ -90,7 +158,10 @@
   delay: 30
   changed_when: false
   become: true
-  when: inventory_hostname in groups['k3s_master']
+  when: >
+    inventory_hostname in groups['k3s_master'] | default([]) or
+    inventory_hostname in groups['k3s_master_first'] | default([]) or
+    inventory_hostname in groups['k3s_master_additional'] | default([])
 
 - name: Create .kube directory for admin user
   file:
@@ -100,7 +171,9 @@
     group: "{{ ansible_user }}"
     mode: '0755'
   become: true
-  when: inventory_hostname in groups['k3s_master']
+  when: >
+    inventory_hostname in groups['k3s_master'] | default([]) or
+    inventory_hostname in groups['k3s_master_first'] | default([])
 
 - name: Copy k3s kubeconfig for admin user
   copy:
@@ -111,51 +184,100 @@
     mode: '0600'
     remote_src: true
   become: true
-  when: inventory_hostname in groups['k3s_master']
+  when: >
+    inventory_hostname in groups['k3s_master'] | default([]) or
+    inventory_hostname in groups['k3s_master_first'] | default([])
 
-- name: Update kubeconfig server URL
+- name: Update kubeconfig server URL (HA cluster)
+  replace:
+    path: "/home/{{ ansible_user }}/.kube/config"
+    regexp: 'https://127.0.0.1:6443'
+    replace: "https://{{ k3s_virtual_ip | default(k3s_first_master_ip | default(ansible_host)) }}:{{ k3s_load_balancer_port | default('6443') }}"
+  become: true
+  when: 
+    - k3s_ha_cluster | default(false) | bool
+    - inventory_hostname in groups['k3s_master_first'] | default([])
+
+- name: Update kubeconfig server URL (single master)
   replace:
     path: "/home/{{ ansible_user }}/.kube/config"
     regexp: 'https://127.0.0.1:6443'
     replace: "https://{{ ansible_host }}:6443"
   become: true
-  when: inventory_hostname in groups['k3s_master']
+  when: 
+    - not (k3s_ha_cluster | default(false) | bool)
+    - inventory_hostname in groups['k3s_master'] | default([])
 
-- name: Fetch kubeconfig to control node
+- name: Fetch kubeconfig to control node (HA cluster)
+  fetch:
+    src: "/home/{{ ansible_user }}/.kube/config"
+    dest: "~/.kube/{{ k3s_cluster_name | default('ztc') }}-config"
+    flat: true
+  when: 
+    - k3s_ha_cluster | default(false) | bool
+    - inventory_hostname in groups['k3s_master_first'] | default([])
+
+- name: Fetch kubeconfig to control node (single master)
   fetch:
     src: "/home/{{ ansible_user }}/.kube/config"
     dest: "~/.kube/{{ inventory_hostname }}-config"
     flat: true
-  when: inventory_hostname in groups['k3s_master']
+  when: 
+    - not (k3s_ha_cluster | default(false) | bool)
+    - inventory_hostname in groups['k3s_master'] | default([])
 
 - name: Get cluster node status
   command: /usr/local/bin/k3s kubectl get nodes -o wide
   register: k3s_nodes
   changed_when: false
   failed_when: false
-  when: inventory_hostname in groups['k3s_master']
+  when: >
+    inventory_hostname in groups['k3s_master'] | default([]) or
+    inventory_hostname in groups['k3s_master_first'] | default([])
 
 - name: Display cluster nodes
   debug:
     msg: "{{ k3s_nodes.stdout_lines }}"
   when: 
-    - inventory_hostname in groups['k3s_master']
     - k3s_nodes is defined
     - k3s_nodes.rc == 0
+    - (inventory_hostname in groups['k3s_master'] | default([]) or
+       inventory_hostname in groups['k3s_master_first'] | default([]))
+
+- name: Check HA cluster status (etcd members)
+  command: /usr/local/bin/k3s kubectl get nodes -l node-role.kubernetes.io/control-plane=true
+  register: k3s_control_plane_nodes
+  changed_when: false
+  failed_when: false
+  when: 
+    - k3s_ha_cluster | default(false) | bool
+    - inventory_hostname in groups['k3s_master_first'] | default([])
+
+- name: Display HA control plane status
+  debug:
+    msg: "HA Control Plane Nodes:\n{{ k3s_control_plane_nodes.stdout_lines }}"
+  when: 
+    - k3s_ha_cluster | default(false) | bool
+    - k3s_control_plane_nodes is defined
+    - k3s_control_plane_nodes.rc == 0
+    - inventory_hostname in groups['k3s_master_first'] | default([])
 
 - name: Check for version consistency across cluster
   command: /usr/local/bin/k3s kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.nodeInfo.kubeletVersion}{"\n"}{end}'
   register: k3s_node_versions
   changed_when: false
   failed_when: false
-  when: inventory_hostname in groups['k3s_master']
+  when: >
+    inventory_hostname in groups['k3s_master'] | default([]) or
+    inventory_hostname in groups['k3s_master_first'] | default([])
 
 - name: Display node versions for consistency check
   debug:
     msg: "Node versions:\n{{ k3s_node_versions.stdout }}"
   when: 
-    - inventory_hostname in groups['k3s_master']
     - k3s_node_versions is defined
     - k3s_node_versions.rc == 0
+    - (inventory_hostname in groups['k3s_master'] | default([]) or
+       inventory_hostname in groups['k3s_master_first'] | default([]))
 
  

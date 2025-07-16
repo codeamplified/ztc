@@ -1,0 +1,110 @@
+# Zero Touch Cluster Docker Build Context
+# Optimize container build by excluding unnecessary files
+
+# Git and version control
+.git
+.gitignore
+.gitattributes
+
+# Documentation (not needed in container)
+docs/
+*.md
+LICENSE
+CONTRIBUTING.md
+
+# User-specific files
+cluster.yaml
+.ansible-vault-password
+ansible/inventory/secrets.yml
+
+# SSH keys (mounted at runtime)
+.ssh/
+id_*
+*.pub
+*.key
+
+# Kubernetes config (mounted at runtime)
+.kube/
+kubeconfig
+
+# Build artifacts and caches
+.cache/
+.tmp/
+tmp/
+
+# Provisioning downloads (large ISO files)
+provisioning/downloads/
+*.iso
+*.img
+
+# Ansible logs and retry files
+ansible.log
+*.retry
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Node.js (if any future JS tools)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Terraform (if any future IaC)
+*.tfstate
+*.tfstate.backup
+.terraform/
+
+# Backup files
+*.backup
+*.bak
+*~
+
+# Temporary files
+*.tmp
+*.temp
+
+# OS generated files
+.DS_Store?
+ehthumbs.db
+Icon?
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Test outputs
+.pytest_cache/
+.coverage
+
+# Log files
+*.log
+
+# Include important files (override above patterns)
+!README.md
+!docs/docker-setup.md

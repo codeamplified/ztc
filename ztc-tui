@@ -1,0 +1,365 @@
+#!/bin/bash
+
+# Zero Touch Cluster Docker Wrapper (Developer Mode)
+# Provides seamless Docker-based execution of ZTC commands
+# For developers who want direct access to all tools and commands
+# Reduces dependencies from 8-10 tools to just Docker
+
+set -euo pipefail
+
+# Colors for output
+CYAN='\033[36m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+RED='\033[31m'
+RESET='\033[0m'
+
+# Configuration
+ZTC_IMAGE_NAME="ztc"
+ZTC_IMAGE_TAG="latest"
+ZTC_FULL_IMAGE="${ZTC_IMAGE_NAME}:${ZTC_IMAGE_TAG}"
+
+# Help function
+show_help() {
+    echo -e "${CYAN}Zero Touch Cluster - Developer Mode${RESET}"
+    echo ""
+    echo -e "${YELLOW}NOTE: This is the developer/expert mode wrapper.${RESET}"
+    echo -e "${YELLOW}For guided setup, use: ./ztc${RESET}"
+    echo ""
+    echo -e "${GREEN}COMMON COMMANDS:${RESET}"
+    echo "    ./ztc-tui help                 # Show this help"
+    echo "    ./ztc-tui prepare              # Interactive setup wizard (customize configuration)"
+    echo "    ./ztc-tui prepare-auto         # Non-interactive setup (homelab template + defaults)"
+    echo "    ./ztc-tui setup                # Deploy complete cluster infrastructure"
+    echo "    ./ztc-tui status               # Check cluster health and status"
+    echo "    ./ztc-tui teardown             # ⚠️  Destroy cluster (use with caution)"
+    echo ""
+    echo -e "${GREEN}CONFIGURATION & VALIDATION:${RESET}"
+    echo "    ./ztc-tui validate-config      # Validate cluster.yaml configuration"
+    echo "    ./ztc-tui show-config          # Display current configuration"
+    echo "    ./ztc-tui update-config        # Update configuration interactively"
+    echo ""
+    echo -e "${GREEN}WORKLOAD DEPLOYMENT:${RESET}"
+    echo "    ./ztc-tui list-bundles         # List available workload bundles"
+    echo "    ./ztc-tui deploy-bundle-starter       # Deploy starter bundle (homepage + monitoring)"
+    echo "    ./ztc-tui deploy-bundle-monitoring    # Deploy monitoring bundle"
+    echo "    ./ztc-tui deploy-bundle-productivity  # Deploy productivity bundle (n8n + code-server)"
+    echo "    ./ztc-tui deploy-bundle-security      # Deploy security bundle (vaultwarden)"
+    echo "    ./ztc-tui deploy-bundle-development   # Deploy development bundle (gitea + registry)"
+    echo ""
+    echo -e "${GREEN}INDIVIDUAL APPLICATIONS:${RESET}"
+    echo "    ./ztc-tui deploy-n8n           # Deploy n8n workflow automation"
+    echo "    ./ztc-tui deploy-homepage      # Deploy homepage dashboard"
+    echo "    ./ztc-tui deploy-uptime-kuma   # Deploy Uptime Kuma monitoring"
+    echo "    ./ztc-tui deploy-vaultwarden   # Deploy Vaultwarden password manager"
+    echo "    ./ztc-tui deploy-code-server   # Deploy VS Code in browser"
+    echo ""
+    echo -e "${GREEN}CREDENTIALS & ACCESS:${RESET}"
+    echo "    ./ztc-tui show-credentials     # Show all system credentials"
+    echo "    ./ztc-tui show-password SERVICE=gitea  # Show specific service password"
+    echo "    ./ztc-tui copy-password SERVICE=grafana # Copy password to clipboard"
+    echo ""
+    echo -e "${GREEN}MAINTENANCE & OPERATIONS:${RESET}"
+    echo "    ./ztc-tui ping                 # Test connectivity to all nodes"
+    echo "    ./ztc-tui backup-secrets       # Backup all credentials"
+    echo "    ./ztc-tui storage-status       # Check storage deployment status"
+    echo "    ./ztc-tui longhorn-stack       # Deploy Longhorn distributed storage"
+    echo ""
+    echo -e "${GREEN}USB PROVISIONING:${RESET}"
+    echo "    ./ztc-tui usb-list             # List available USB devices"
+    echo "    ./ztc-tui autoinstall-usb      # Create bootable USB for node installation"
+    echo "    ./ztc-tui cidata-usb           # Create node-specific configuration USB"
+    echo ""
+    echo -e "${YELLOW}DOCKER WRAPPER COMMANDS:${RESET}"
+    echo "    ./ztc-tui --docker-build       # Build ZTC Docker image"
+    echo "    ./ztc-tui --docker-status      # Show Docker environment status"
+    echo "    ./ztc-tui --docker-shell       # Open interactive shell in container"
+    echo "    ./ztc-tui --native             # Force use of native tools (bypass Docker)"
+    echo ""
+    echo -e "${CYAN}DEVELOPER MODE USAGE:${RESET}"
+    echo "    1. Run './ztc-tui prepare-auto' for quick setup with defaults"
+    echo "       OR './ztc-tui prepare' for interactive customization"
+    echo "    2. Create USB drives for node installation"
+    echo "    3. Boot nodes from USB and wait for installation"
+    echo "    4. Run './ztc-tui setup' to deploy your cluster"
+    echo "    5. Access dashboard at http://homelab.lan"
+    echo ""
+    echo -e "${YELLOW}REQUIREMENTS:${RESET}"
+    echo "    - Docker or Podman (only requirement for wrapper)"
+    echo "    - SSH keys in ~/.ssh/ (automatically mounted)"
+    echo "    - Physical mini PCs for cluster nodes"
+    echo ""
+    echo "All standard 'make' commands work identically through this wrapper."
+    echo "For the full list of commands, run: ./ztc-tui --docker-shell && make help"
+    echo ""
+    echo -e "${CYAN}Documentation: https://github.com/zero-touch-cluster/ztc${RESET}"
+}
+
+# Check if Docker is available
+check_docker() {
+    if command -v docker >/dev/null 2>&1; then
+        echo "docker"
+        return 0
+    elif command -v podman >/dev/null 2>&1; then
+        echo "podman"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Build ZTC Docker image
+build_image() {
+    local docker_cmd="$1"
+    
+    echo -e "${CYAN}🏗️  Building ZTC Docker image...${RESET}"
+    echo -e "${YELLOW}This may take a few minutes on first run...${RESET}"
+    
+    if $docker_cmd build -t "$ZTC_FULL_IMAGE" .; then
+        echo -e "${GREEN}✅ ZTC Docker image built successfully${RESET}"
+        return 0
+    else
+        echo -e "${RED}❌ Failed to build ZTC Docker image${RESET}"
+        return 1
+    fi
+}
+
+# Check if ZTC image exists
+image_exists() {
+    local docker_cmd="$1"
+    
+    $docker_cmd images --format "table {{.Repository}}:{{.Tag}}" | grep -q "^${ZTC_FULL_IMAGE}$"
+}
+
+# Show Docker environment status
+show_docker_status() {
+    local docker_cmd="$1"
+    
+    echo -e "${CYAN}🐳 Docker Environment Status${RESET}"
+    echo ""
+    
+    echo "Docker Command: $docker_cmd"
+    echo "Docker Version: $($docker_cmd --version)"
+    echo ""
+    
+    if image_exists "$docker_cmd"; then
+        echo -e "${GREEN}✅ ZTC Image: ${ZTC_FULL_IMAGE} (available)${RESET}"
+        
+        # Show image info
+        local image_size created
+        image_size=$($docker_cmd images --format "table {{.Size}}" "$ZTC_FULL_IMAGE" | tail -1)
+        created=$($docker_cmd images --format "table {{.CreatedAt}}" "$ZTC_FULL_IMAGE" | tail -1)
+        echo "   Size: $image_size"
+        echo "   Created: $created"
+    else
+        echo -e "${YELLOW}⚠️  ZTC Image: Not built yet${RESET}"
+        echo -e "${YELLOW}   Run: ./ztc --docker-build${RESET}"
+    fi
+    
+    echo ""
+    echo "Mount Points:"
+    echo "   SSH Keys: ~/.ssh → /home/ztc/.ssh (read-only)"
+    echo "   Workspace: $(pwd) → /workspace"
+    echo "   Kube Config: ~/.kube → /home/ztc/.kube (if exists)"
+    
+    echo ""
+    echo "Network: Host networking (direct cluster access)"
+}
+
+# Get mount arguments for Docker
+get_mount_args() {
+    local mounts=()
+    
+    # Always mount current directory as workspace
+    mounts+=("-v" "$(pwd):/workspace")
+    
+    # Mount SSH directory if it exists
+    if [[ -d "$HOME/.ssh" ]]; then
+        mounts+=("-v" "$HOME/.ssh:/home/ztc/.ssh:ro")
+    fi
+    
+    # Mount kubectl config if it exists
+    if [[ -d "$HOME/.kube" ]]; then
+        mounts+=("-v" "$HOME/.kube:/home/ztc/.kube:ro")
+    fi
+    
+    printf '%s\n' "${mounts[@]}"
+}
+
+# Run command in Docker container
+run_in_container() {
+    local docker_cmd="$1"
+    shift
+    local cmd_args=("$@")
+    
+    # Get mount arguments
+    local mount_args
+    mapfile -t mount_args < <(get_mount_args)
+    
+    # Check if this is an interactive command that needs TTY
+    local interactive_args=""
+    case "${cmd_args[0]:-}" in
+        "prepare"|"setup-wizard"|"configure")
+            # Interactive commands need TTY and stdin
+            interactive_args="-it"
+            ;;
+        "prepare-auto")
+            # Non-interactive commands don't need TTY
+            interactive_args=""
+            ;;
+    esac
+    
+    # Run the container
+    $docker_cmd run --rm $interactive_args \
+        --network host \
+        "${mount_args[@]}" \
+        --workdir /workspace \
+        --user "$(id -u):$(id -g)" \
+        "$ZTC_FULL_IMAGE" \
+        "${cmd_args[@]}"
+}
+
+# Open interactive shell in container
+open_shell() {
+    local docker_cmd="$1"
+    
+    echo -e "${CYAN}🐚 Opening interactive shell in ZTC container...${RESET}"
+    echo -e "${YELLOW}All ZTC tools are available. Type 'exit' to return.${RESET}"
+    
+    # Get mount arguments
+    local mount_args
+    mapfile -t mount_args < <(get_mount_args)
+    
+    $docker_cmd run --rm -it \
+        --network host \
+        "${mount_args[@]}" \
+        --workdir /workspace \
+        --user "$(id -u):$(id -g)" \
+        "$ZTC_FULL_IMAGE" \
+        /bin/bash
+}
+
+# Check for native tools and suggest alternatives
+check_native_tools() {
+    echo -e "${CYAN}🔍 Checking for native tools...${RESET}"
+    
+    local tools=("make" "ansible" "kubectl" "helm" "yq" "jq")
+    local missing=()
+    local available=()
+    
+    for tool in "${tools[@]}"; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            available+=("$tool")
+        else
+            missing+=("$tool")
+        fi
+    done
+    
+    if [[ ${#available[@]} -gt 0 ]]; then
+        echo -e "${GREEN}✅ Available tools: ${available[*]}${RESET}"
+    fi
+    
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo -e "${YELLOW}⚠️  Missing tools: ${missing[*]}${RESET}"
+        echo -e "${YELLOW}💡 Use Docker wrapper for zero-dependency execution${RESET}"
+        return 1
+    else
+        echo -e "${GREEN}✅ All native tools available${RESET}"
+        return 0
+    fi
+}
+
+# Force native execution
+run_native() {
+    local args=("$@")
+    
+    echo -e "${CYAN}🔧 Running with native tools...${RESET}"
+    
+    if check_native_tools; then
+        make "${args[@]}"
+    else
+        echo -e "${RED}❌ Missing required tools for native execution${RESET}"
+        echo -e "${YELLOW}💡 Install missing tools or use Docker wrapper without --native${RESET}"
+        exit 1
+    fi
+}
+
+# Main execution logic
+main() {
+    # Handle special arguments and help commands that don't need Docker
+    case "${1:-help}" in
+        "--help"|"-h"|"help")
+            show_help
+            exit 0
+            ;;
+        "--docker-build")
+            if docker_cmd=$(check_docker); then
+                build_image "$docker_cmd"
+                exit $?
+            else
+                echo -e "${RED}❌ Docker/Podman not found${RESET}"
+                exit 1
+            fi
+            ;;
+        "--docker-status")
+            if docker_cmd=$(check_docker); then
+                show_docker_status "$docker_cmd"
+                exit 0
+            else
+                echo -e "${RED}❌ Docker/Podman not found${RESET}"
+                exit 1
+            fi
+            ;;
+        "--docker-shell")
+            if docker_cmd=$(check_docker); then
+                if image_exists "$docker_cmd"; then
+                    open_shell "$docker_cmd"
+                    exit 0
+                else
+                    echo -e "${RED}❌ ZTC Docker image not found${RESET}"
+                    echo -e "${YELLOW}💡 Run: ./ztc-tui --docker-build${RESET}"
+                    exit 1
+                fi
+            else
+                echo -e "${RED}❌ Docker/Podman not found${RESET}"
+                exit 1
+            fi
+            ;;
+        "--native")
+            shift
+            run_native "$@"
+            exit $?
+            ;;
+    esac
+    
+    # Try Docker first
+    if docker_cmd=$(check_docker); then
+        # Check if image exists, build if needed
+        if ! image_exists "$docker_cmd"; then
+            echo -e "${YELLOW}🏗️  First-time setup: Building ZTC Docker image...${RESET}"
+            echo -e "${CYAN}This is a one-time process that bundles all required tools.${RESET}"
+            echo -e "${CYAN}Future commands will run instantly.${RESET}"
+            echo ""
+            
+            if ! build_image "$docker_cmd"; then
+                echo -e "${RED}❌ Failed to build Docker image${RESET}"
+                echo -e "${YELLOW}💡 Try native execution: ./ztc-tui --native ${*}${RESET}"
+                exit 1
+            fi
+            
+            echo ""
+            echo -e "${GREEN}✅ Setup complete! Now running your command...${RESET}"
+            echo ""
+        fi
+        
+        # Run in container
+        run_in_container "$docker_cmd" "$@"
+    else
+        # Fall back to native tools
+        echo -e "${YELLOW}⚠️  Docker/Podman not found, trying native tools...${RESET}"
+        run_native "$@"
+    fi
+}
+
+# Execute main function with all arguments
+main "$@"

@@ -17,6 +17,62 @@ Zero Touch Cluster is an open-source project that transforms bare metal into a p
 
 ## Quick Start
 
+### 🎯 **Guided Setup** (Recommended for new users)
+
+**Beautiful TUI wizard that guides you through the entire process:**
+
+```bash
+# One command to start the guided setup
+./ztc
+```
+
+Perfect for:
+- ✅ First-time Kubernetes users
+- ✅ Quick demos and testing  
+- ✅ Learning cluster concepts
+- ✅ Error-free deployment
+
+### 🛠️ **Developer Mode** (For power users)
+
+**Direct access to all commands and full customization:**
+
+```bash
+# Check prerequisites
+./ztc-tui check
+
+# Generate configuration 
+./ztc-tui prepare-auto
+
+# Deploy cluster
+./ztc-tui setup
+
+# Access at http://homelab.lan
+```
+
+Perfect for:
+- ✅ DevOps engineers
+- ✅ Custom configurations
+- ✅ CI/CD integration
+- ✅ Advanced troubleshooting
+
+### 📦 **Zero Dependencies**
+
+Both modes only require Docker - no other tools needed!
+
+```bash
+# One-command installation
+curl -sSL https://raw.githubusercontent.com/zero-touch-cluster/ztc/main/install.sh | bash
+
+# Navigate to ZTC directory
+cd ~/ztc
+
+# Choose your path:
+./ztc          # Guided setup
+./ztc-tui      # Developer mode
+```
+
+**Benefits**: Only Docker required, consistent across all platforms, zero tool conflicts.
+
 ### Option 1: Use Our Reference Configuration
 Perfect if you want to learn or already have compatible hardware (Raspberry Pis, mini PCs, or old laptops):
 

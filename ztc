@@ -1,0 +1,186 @@
+#!/bin/bash
+
+# Zero Touch Cluster - Guided Setup
+# Simple entry point for new users with beautiful TUI wizard
+# For developer mode, use: ./ztc-tui
+
+set -euo pipefail
+
+# Colors for output
+CYAN='\033[36m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+RED='\033[31m'
+RESET='\033[0m'
+
+# Configuration
+ZTC_IMAGE_NAME="ztc"
+ZTC_IMAGE_TAG="latest"
+ZTC_FULL_IMAGE="${ZTC_IMAGE_NAME}:${ZTC_IMAGE_TAG}"
+
+# Check if Docker is available
+check_docker() {
+    if command -v docker >/dev/null 2>&1; then
+        echo "docker"
+        return 0
+    elif command -v podman >/dev/null 2>&1; then
+        echo "podman"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Build ZTC Docker image
+build_image() {
+    local docker_cmd="$1"
+    
+    echo -e "${CYAN}🏗️  Building ZTC Docker image...${RESET}"
+    echo -e "${YELLOW}This may take a few minutes on first run...${RESET}"
+    
+    if $docker_cmd build -t "$ZTC_FULL_IMAGE" .; then
+        echo -e "${GREEN}✅ ZTC Docker image built successfully${RESET}"
+        return 0
+    else
+        echo -e "${RED}❌ Failed to build ZTC Docker image${RESET}"
+        return 1
+    fi
+}
+
+# Check if ZTC image exists
+image_exists() {
+    local docker_cmd="$1"
+    
+    $docker_cmd images --format "table {{.Repository}}:{{.Tag}}" | grep -q "^${ZTC_FULL_IMAGE}$"
+}
+
+# Get mount arguments for Docker
+get_mount_args() {
+    local mounts=()
+    
+    # Always mount current directory as workspace
+    mounts+=("-v" "$(pwd):/workspace")
+    
+    # Mount SSH directory if it exists
+    if [[ -d "$HOME/.ssh" ]]; then
+        mounts+=("-v" "$HOME/.ssh:/home/ztc/.ssh:ro")
+    fi
+    
+    # Mount kubectl config if it exists
+    if [[ -d "$HOME/.kube" ]]; then
+        mounts+=("-v" "$HOME/.kube:/home/ztc/.kube:ro")
+    fi
+    
+    # Mount Docker socket for USB operations
+    if [[ -e "/var/run/docker.sock" ]]; then
+        mounts+=("-v" "/var/run/docker.sock:/var/run/docker.sock")
+    fi
+    
+    printf '%s\n' "${mounts[@]}"
+}
+
+# Show welcome message
+show_welcome() {
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${RESET}"
+    echo -e "${CYAN}║          Zero Touch Cluster - Guided Setup            ║${RESET}"
+    echo -e "${CYAN}╠═══════════════════════════════════════════════════════╣${RESET}"
+    echo -e "${CYAN}║                                                       ║${RESET}"
+    echo -e "${CYAN}║  Welcome! Let's build your Kubernetes cluster.        ║${RESET}"
+    echo -e "${CYAN}║                                                       ║${RESET}"
+    echo -e "${CYAN}║  This wizard will help you:                           ║${RESET}"
+    echo -e "${CYAN}║  ✓ Design your cluster architecture                   ║${RESET}"
+    echo -e "${CYAN}║  ✓ Create bootable USB drives                         ║${RESET}"
+    echo -e "${CYAN}║  ✓ Deploy Kubernetes and applications                 ║${RESET}"
+    echo -e "${CYAN}║  ✓ Access your new dashboard                          ║${RESET}"
+    echo -e "${CYAN}║                                                       ║${RESET}"
+    echo -e "${CYAN}║  Requirements:                                        ║${RESET}"
+    echo -e "${CYAN}║  • Docker (only dependency)                          ║${RESET}"
+    echo -e "${CYAN}║  • 4+ mini PCs or servers                            ║${RESET}"
+    echo -e "${CYAN}║  • USB drives for installation                        ║${RESET}"
+    echo -e "${CYAN}║  • Network switch and cables                          ║${RESET}"
+    echo -e "${CYAN}║                                                       ║${RESET}"
+    echo -e "${CYAN}║  For developer mode, use: ./ztc-tui                   ║${RESET}"
+    echo -e "${CYAN}║                                                       ║${RESET}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${RESET}"
+    echo ""
+}
+
+# Run the guided TUI wizard
+run_tui_wizard() {
+    local docker_cmd="$1"
+    
+    # Get mount arguments
+    local mount_args
+    mapfile -t mount_args < <(get_mount_args)
+    
+    # Run the TUI wizard in Docker container
+    $docker_cmd run --rm -it \
+        --network host \
+        --privileged \
+        "${mount_args[@]}" \
+        --workdir /workspace \
+        --env "TERM=${TERM:-xterm-256color}" \
+        --env "ZTC_GUIDED_MODE=true" \
+        --env "HOST_USER_ID=$(id -u)" \
+        --env "HOST_GROUP_ID=$(id -g)" \
+        "$ZTC_FULL_IMAGE" \
+        tui-wizard
+}
+
+# Handle help and version
+case "${1:-}" in
+    "--help"|"-h"|"help")
+        show_welcome
+        echo -e "${YELLOW}Usage: ./ztc${RESET}"
+        echo ""
+        echo -e "${GREEN}This launches the guided setup wizard.${RESET}"
+        echo -e "${GREEN}For direct command access, use: ./ztc-tui${RESET}"
+        echo ""
+        exit 0
+        ;;
+    "--version"|"-v")
+        echo "Zero Touch Cluster - Guided Setup v1.0.0"
+        exit 0
+        ;;
+esac
+
+# Main execution
+main() {
+    # Show welcome message
+    show_welcome
+    
+    # Check if Docker is available
+    if ! docker_cmd=$(check_docker); then
+        echo -e "${RED}❌ Docker or Podman is required for guided setup${RESET}"
+        echo ""
+        echo -e "${YELLOW}Please install Docker: https://docs.docker.com/get-docker/${RESET}"
+        echo ""
+        echo -e "${YELLOW}Alternative: Use developer mode with local tools${RESET}"
+        echo -e "${YELLOW}See docs/developer-guide.md for details${RESET}"
+        exit 1
+    fi
+    
+    # Check if image exists, build if needed
+    if ! image_exists "$docker_cmd"; then
+        echo -e "${YELLOW}🏗️  First-time setup: Building ZTC environment...${RESET}"
+        echo -e "${CYAN}This is a one-time process that bundles all required tools.${RESET}"
+        echo -e "${CYAN}Future runs will be instant.${RESET}"
+        echo ""
+        
+        if ! build_image "$docker_cmd"; then
+            echo -e "${RED}❌ Failed to build Docker image${RESET}"
+            echo -e "${YELLOW}💡 Try developer mode: ./ztc-tui --native${RESET}"
+            exit 1
+        fi
+        
+        echo ""
+        echo -e "${GREEN}✅ Setup complete! Launching guided wizard...${RESET}"
+        echo ""
+    fi
+    
+    # Run the TUI wizard
+    run_tui_wizard "$docker_cmd"
+}
+
+# Execute main function
+main "$@"

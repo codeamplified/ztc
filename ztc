@@ -111,7 +111,10 @@ run_tui_wizard() {
     
     # Get mount arguments
     local mount_args
-    mapfile -t mount_args < <(get_mount_args)
+    mount_args=()
+    while IFS= read -r line; do
+        mount_args+=("$line")
+    done < <(get_mount_args)
     
     # Run the TUI wizard in Docker container
     $docker_cmd run --rm -it \

@@ -84,6 +84,35 @@ longhorn:
           memory: 128Mi
           cpu: 100m
 
+# MinIO Object Storage (S3-Compatible)
+minio:
+  enabled: false  # MinIO disabled by default - enable for object storage needs
+  namespace: "minio"
+  
+  # Storage configuration
+  storage_class: "longhorn"  # Use Longhorn for MinIO persistence
+  replicas: 3  # Number of MinIO instances (distributed mode)
+  storage_size: "100Gi"  # Storage size per instance
+  
+  # S3 API configuration
+  api:
+    hostname: "s3.homelab.lan"
+  
+  # MinIO Console (Web UI) configuration
+  console:
+    enabled: true
+    hostname: "minio-console.homelab.lan"
+  
+  # Credentials (leave empty for auto-generation)
+  credentials:
+    access_key: ""  # Auto-generated if empty
+    secret_key: ""  # Auto-generated if empty
+  
+  # Resource limits
+  resources:
+    memory_limit: "512Mi"
+    cpu_limit: "500m"
+
 # Additional storage classes (can be extended)
 additionalStorageClasses: []
 #  - name: "fast-ssd"

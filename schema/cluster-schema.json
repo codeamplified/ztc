@@ -295,6 +295,109 @@
             }
           },
           "additionalProperties": false
+        },
+        "minio": {
+          "type": "object",
+          "description": "MinIO S3-compatible object storage configuration",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable MinIO object storage",
+              "default": false
+            },
+            "namespace": {
+              "type": "string",
+              "description": "Kubernetes namespace for MinIO deployment",
+              "pattern": "^[a-z0-9-]+$",
+              "default": "minio"
+            },
+            "storage_class": {
+              "type": "string",
+              "description": "Storage class for MinIO persistent volumes",
+              "enum": ["local-path", "longhorn"],
+              "default": "longhorn"
+            },
+            "replicas": {
+              "type": "integer",
+              "description": "Number of MinIO replicas for distributed mode",
+              "minimum": 1,
+              "maximum": 32,
+              "default": 3
+            },
+            "storage_size": {
+              "type": "string",
+              "description": "Storage size per MinIO instance",
+              "pattern": "^\\d+(\\.\\d+)?(Ti|Gi|Mi)$",
+              "default": "100Gi"
+            },
+            "console": {
+              "type": "object",
+              "description": "MinIO console (web UI) configuration",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "hostname": {
+                  "type": "string",
+                  "description": "Hostname for MinIO console ingress",
+                  "pattern": "^[a-z0-9.-]+$",
+                  "default": "minio-console.homelab.lan"
+                }
+              },
+              "additionalProperties": false
+            },
+            "api": {
+              "type": "object",
+              "description": "MinIO S3 API configuration",
+              "properties": {
+                "hostname": {
+                  "type": "string",
+                  "description": "Hostname for MinIO S3 API ingress",
+                  "pattern": "^[a-z0-9.-]+$",
+                  "default": "s3.homelab.lan"
+                }
+              },
+              "additionalProperties": false
+            },
+            "credentials": {
+              "type": "object",
+              "description": "MinIO access credentials (auto-generated if not specified)",
+              "properties": {
+                "access_key": {
+                  "type": "string",
+                  "description": "MinIO access key (leave empty for auto-generation)",
+                  "minLength": 3,
+                  "maxLength": 20
+                },
+                "secret_key": {
+                  "type": "string",
+                  "description": "MinIO secret key (leave empty for auto-generation)",
+                  "minLength": 8,
+                  "maxLength": 40
+                }
+              },
+              "additionalProperties": false
+            },
+            "resources": {
+              "type": "object",
+              "description": "Resource limits for MinIO pods",
+              "properties": {
+                "memory_limit": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d+)?(Gi|Mi)$",
+                  "default": "512Mi"
+                },
+                "cpu_limit": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d+)?m?$",
+                  "default": "500m"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

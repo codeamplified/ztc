@@ -1,6 +1,6 @@
 # Zero Touch Cluster Makefile
 
-.PHONY: help prepare prepare-auto check setup storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack longhorn-stack setup-gitea-repos homepage-stack deploy-storage enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate validate-config validate-schema schema-info generate-inventory auto-deploy-workloads docker-build docker-status docker-shell docker-test teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-code-server deploy-bundle-starter deploy-bundle-monitoring deploy-bundle-productivity deploy-bundle-security deploy-bundle-development list-bundles bundle-status deploy-custom-app deploy-gitea-runner registry-login registry-info
+.PHONY: help prepare prepare-auto check setup storage cluster deploy-dns dns-status copy-kubeconfig post-cluster-setup system-components monitoring-stack storage-stack longhorn-stack minio-stack minio-status minio-console enable-minio disable-minio setup-gitea-repos homepage-stack deploy-storage enable-longhorn disable-longhorn longhorn-status credentials show-credentials show-passwords argocd argocd-apps gitops-status gitops-sync status autoinstall-usb cidata-iso cidata-usb usb-list ping restart-node drain-node uncordon-node lint validate validate-config validate-schema schema-info generate-inventory auto-deploy-workloads docker-build docker-status docker-shell docker-test teardown logs undeploy-workload undeploy-n8n undeploy-uptime-kuma undeploy-code-server deploy-bundle-starter deploy-bundle-monitoring deploy-bundle-productivity deploy-bundle-security deploy-bundle-development list-bundles bundle-status deploy-custom-app deploy-gitea-runner registry-login registry-info
 
 # Default target
 .DEFAULT_GOAL := help
@@ -276,21 +276,29 @@ monitoring-stack: ## Deploy monitoring stack (Prometheus, Grafana, AlertManager)
 		--wait --timeout 10m
 	@echo "$(GREEN)✅ Monitoring stack deployed$(RESET)"
 
-storage: ## Deploy storage components (Usage: make storage [LONGHORN=true])
+storage: ## Deploy storage components (Usage: make storage [LONGHORN=true] [MINIO=true])
 	@echo "$(CYAN)Deploying storage stack...$(RESET)"
 	@command -v helm >/dev/null || (echo "$(RED)❌ Helm not installed$(RESET)" && exit 1)
 	@kubectl cluster-info >/dev/null 2>&1 || (echo "$(RED)❌ Cluster not accessible. Run 'make copy-kubeconfig' first$(RESET)" && exit 1)
 	@chmod +x scripts/lib/config-reader.sh
 	@STORAGE_STRATEGY=$$(./scripts/lib/config-reader.sh get storage.strategy 2>/dev/null || echo "hybrid"); \
 	LONGHORN_ENABLED=$$(./scripts/lib/config-reader.sh get storage.longhorn.enabled 2>/dev/null || echo "false"); \
+	MINIO_ENABLED=$$(./scripts/lib/config-reader.sh get storage.minio.enabled 2>/dev/null || echo "false"); \
 	DEFAULT_CLASS=$$(./scripts/lib/config-reader.sh get storage.default_class 2>/dev/null || echo "local-path"); \
 	LONGHORN_REPLICAS=$$(./scripts/lib/config-reader.sh get storage.longhorn.replica_count 2>/dev/null || echo "3"); \
+	MINIO_REPLICAS=$$(./scripts/lib/config-reader.sh get storage.minio.replicas 2>/dev/null || echo "3"); \
+	MINIO_STORAGE_CLASS=$$(./scripts/lib/config-reader.sh get storage.minio.storage_class 2>/dev/null || echo "longhorn"); \
 	if [ -n "$(LONGHORN)" ]; then LONGHORN_ENABLED="$(LONGHORN)"; fi; \
+	if [ -n "$(MINIO)" ]; then MINIO_ENABLED="$(MINIO)"; fi; \
 	echo "$(CYAN)Configuration: Strategy=$$STORAGE_STRATEGY, Default=$$DEFAULT_CLASS$(RESET)"; \
-	echo "$(CYAN)Options: LONGHORN=$$LONGHORN_ENABLED$(RESET)"; \
+	echo "$(CYAN)Options: LONGHORN=$$LONGHORN_ENABLED, MINIO=$$MINIO_ENABLED$(RESET)"; \
 	if [ "$$LONGHORN_ENABLED" = "true" ]; then \
 		echo "$(YELLOW)⚠️  Longhorn requires open-iscsi on all nodes$(RESET)"; \
 		echo "$(YELLOW)⚠️  Ensure nodes have been provisioned with Longhorn support$(RESET)"; \
+	fi; \
+	if [ "$$MINIO_ENABLED" = "true" ]; then \
+		echo "$(YELLOW)⚠️  MinIO requires persistent storage (local-path or Longhorn)$(RESET)"; \
+		echo "$(YELLOW)⚠️  MinIO will use $$MINIO_STORAGE_CLASS storage class$(RESET)"; \
 	fi; \
 	helm upgrade --install storage ./kubernetes/system/storage \
 		--namespace kube-system \
@@ -299,7 +307,10 @@ storage: ## Deploy storage components (Usage: make storage [LONGHORN=true])
 		--set longhorn.enabled="$$LONGHORN_ENABLED" \
 		--set longhorn.config.defaultReplicaCount="$$LONGHORN_REPLICAS" \
 		--set longhorn.config.defaultStorageClass.isDefaultClass=$$([ "$$DEFAULT_CLASS" = "longhorn" ] && echo "true" || echo "false") \
-		--wait --timeout 5m
+		--set minio.enabled="$$MINIO_ENABLED" \
+		--set minio.replicas="$$MINIO_REPLICAS" \
+		--set minio.storage_class="$$MINIO_STORAGE_CLASS" \
+		--wait --timeout 10m
 	@echo "$(GREEN)✅ Storage stack deployed$(RESET)"
 
 
@@ -378,6 +389,7 @@ storage-status: ## Check storage deployment status and available storage classes
 	@echo ""
 	@echo "$(CYAN)Storage Pods:$(RESET)"
 	@kubectl get pods -n longhorn-system 2>/dev/null || echo "$(YELLOW)⚠️  Longhorn not deployed$(RESET)"
+	@kubectl get pods -n minio 2>/dev/null || echo "$(YELLOW)⚠️  MinIO not deployed$(RESET)"
 
 longhorn-stack: ## Deploy Longhorn distributed storage (for 3+ node clusters)
 	@echo "$(CYAN)Deploying Longhorn distributed storage...$(RESET)"
@@ -406,6 +418,78 @@ longhorn-status: ## Check Longhorn deployment status
 	else \
 		echo "$(RED)❌ Longhorn not deployed$(RESET)"; \
 		echo "$(YELLOW)Deploy with: make longhorn-stack$(RESET)"; \
+	fi
+
+minio-stack: ## Deploy MinIO S3-compatible object storage
+	@echo "$(CYAN)Deploying MinIO object storage...$(RESET)"
+	@echo "$(YELLOW)Prerequisites: Longhorn or local-path storage available$(RESET)"
+	helm upgrade --install storage ./kubernetes/system/storage \
+		--namespace kube-system \
+		--values ./kubernetes/system/storage/values.yaml \
+		--set minio.enabled=true \
+		--wait --timeout 15m
+	@echo "$(GREEN)✅ MinIO deployed$(RESET)"
+	@echo "$(CYAN)Checking MinIO status...$(RESET)"
+	@sleep 30
+	@kubectl get pods -n minio 2>/dev/null || echo "$(YELLOW)MinIO pods starting...$(RESET)"
+	@if kubectl get pods -n minio 2>/dev/null | grep -q "Running"; then \
+		echo ""; \
+		echo "$(GREEN)✅ MinIO is running$(RESET)"; \
+		echo "$(CYAN)S3 API: http://s3.homelab.lan$(RESET)"; \
+		echo "$(CYAN)Console: http://minio-console.homelab.lan$(RESET)"; \
+		echo "$(CYAN)Credentials: kubectl get secret -n minio minio-credentials -o jsonpath='{.data}'$(RESET)"; \
+	else \
+		echo "$(YELLOW)⚠️  MinIO pods not ready yet. Check status with: kubectl get pods -n minio$(RESET)"; \
+	fi
+
+minio-status: ## Check MinIO deployment status
+	@echo "$(CYAN)MinIO Status:$(RESET)"
+	@kubectl get pods -n minio 2>/dev/null || echo "$(YELLOW)⚠️  MinIO not deployed$(RESET)"
+	@echo ""
+	@echo "$(CYAN)MinIO Services:$(RESET)"
+	@kubectl get svc -n minio 2>/dev/null || echo "$(YELLOW)⚠️  MinIO services not found$(RESET)"
+	@echo ""
+	@echo "$(CYAN)MinIO Ingress:$(RESET)"
+	@kubectl get ingress -n minio 2>/dev/null || echo "$(YELLOW)⚠️  MinIO ingress not found$(RESET)"
+	@echo ""
+	@echo "$(CYAN)MinIO Credentials:$(RESET)"
+	@if kubectl get secret -n minio minio-credentials >/dev/null 2>&1; then \
+		echo "Access Key: $$(kubectl get secret -n minio minio-credentials -o jsonpath='{.data.access-key}' | base64 -d)"; \
+		echo "Secret Key: $$(kubectl get secret -n minio minio-credentials -o jsonpath='{.data.secret-key}' | base64 -d)"; \
+	else \
+		echo "$(YELLOW)⚠️  MinIO credentials not found$(RESET)"; \
+	fi
+
+minio-console: ## Open MinIO console in browser (requires port-forward)
+	@echo "$(CYAN)Opening MinIO console...$(RESET)"
+	@if kubectl get pods -n minio -l app=minio >/dev/null 2>&1; then \
+		echo "$(CYAN)MinIO console available at: http://minio-console.homelab.lan$(RESET)"; \
+		echo "$(CYAN)Or via port-forward: kubectl port-forward -n minio svc/minio-console 9001:9001$(RESET)"; \
+		echo "$(CYAN)Then open: http://localhost:9001$(RESET)"; \
+	else \
+		echo "$(RED)❌ MinIO not deployed. Run 'make minio-stack' first$(RESET)"; \
+	fi
+
+enable-minio: ## Enable MinIO in cluster configuration
+	@echo "$(CYAN)Enabling MinIO in cluster configuration...$(RESET)"
+	@chmod +x scripts/lib/config-reader.sh
+	@if [ -f "cluster.yaml" ]; then \
+		yq e '.storage.minio.enabled = true' -i cluster.yaml; \
+		echo "$(GREEN)✅ MinIO enabled in cluster.yaml$(RESET)"; \
+		echo "$(YELLOW)Run 'make storage' to deploy MinIO$(RESET)"; \
+	else \
+		echo "$(RED)❌ cluster.yaml not found. Run 'make prepare' first$(RESET)"; \
+	fi
+
+disable-minio: ## Disable MinIO in cluster configuration
+	@echo "$(CYAN)Disabling MinIO in cluster configuration...$(RESET)"
+	@chmod +x scripts/lib/config-reader.sh
+	@if [ -f "cluster.yaml" ]; then \
+		yq e '.storage.minio.enabled = false' -i cluster.yaml; \
+		echo "$(GREEN)✅ MinIO disabled in cluster.yaml$(RESET)"; \
+		echo "$(YELLOW)⚠️  Existing MinIO deployment will remain. Remove manually if needed$(RESET)"; \
+	else \
+		echo "$(RED)❌ cluster.yaml not found. Run 'make prepare' first$(RESET)"; \
 	fi
 
 ##@ Credential Management
@@ -964,9 +1048,12 @@ help: ## Display this help
 	@echo "  make backup-secrets     # Create encrypted backup"
 	@echo ""
 	@echo "$(GREEN)🏗️  Infrastructure Components:$(RESET)"
-	@echo "  make storage                 # Deploy K8s storage (local-path + Longhorn)"
+	@echo "  make storage                 # Deploy K8s storage (local-path + Longhorn + MinIO)"
 	@echo "  make storage LONGHORN=true   # Deploy storage with Longhorn"
+	@echo "  make storage MINIO=true      # Deploy storage with MinIO object storage"
 	@echo "  make storage-status          # Check storage deployment"
+	@echo "  make longhorn-stack          # Deploy Longhorn distributed storage"
+	@echo "  make minio-stack             # Deploy MinIO object storage"
 	@echo "  make monitoring-stack        # Deploy monitoring (Prometheus, Grafana)"
 	@echo "  make gitea-stack             # Deploy Git server"
 	@echo ""
@@ -994,6 +1081,7 @@ help: ## Display this help
 	@echo ""
 	@echo "$(GREEN)🎛️  Advanced:$(RESET)"
 	@echo "  make longhorn-stack          # Deploy distributed storage"
+	@echo "  make minio-stack             # Deploy S3-compatible object storage"
 	@echo "  make deploy-dns              # Deploy DNS server"
 	@echo "  make ping                    # Test node connectivity"
 	@echo "  make restart-node NODE=name  # Restart specific node"
@@ -1001,4 +1089,5 @@ help: ## Display this help
 	@echo "$(YELLOW)💡 Examples:$(RESET)"
 	@echo "  make show-credentials SERVICE=gitea   # Show specific service"
 	@echo "  make deploy-n8n STORAGE_SIZE=5Gi      # Deploy with custom storage"
-	@echo "  make storage LONGHORN=true            # Custom storage configuration"
+	@echo "  make storage LONGHORN=true MINIO=true # Deploy with distributed + object storage"
+	@echo "  make minio-status                     # Check MinIO deployment status"

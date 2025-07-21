@@ -828,7 +828,7 @@ kubectl describe pod <pod-name> -n <namespace>
 
 ## Storage Strategy
 
-**TWO-TIER STORAGE ARCHITECTURE**: Zero Touch Cluster supports local-path and Longhorn storage to meet diverse homelab requirements.
+**THREE-TIER STORAGE ARCHITECTURE**: Zero Touch Cluster supports local-path, Longhorn, and MinIO storage to meet diverse homelab requirements.
 
 ### When to Use Each Storage Class
 
@@ -846,6 +846,13 @@ kubectl describe pod <pod-name> -n <namespace>
 - **Fault tolerance** - survives node failures without data loss
 - **Critical databases** and applications requiring enterprise storage
 
+**minio (configurable, disabled by default)**
+- **S3-compatible object storage** for modern cloud-native applications
+- **Backup target** for Longhorn and application data
+- **Large file storage** for media, documents, and assets
+- **Multi-application sharing** via S3 API
+- **Web console** for easy file management and bucket administration
+
 ### Storage Selection Guide
 
 **Choose your storage architecture based on cluster scale and requirements:**
@@ -858,21 +865,25 @@ kubectl describe pod <pod-name> -n <namespace>
 
 #### Small Homelab (2-4 nodes)  
 ```bash
-# Use local-path only (default configuration)
-# Simple and effective for small clusters
+# Use local-path + MinIO (recommended)
+make enable-minio        # Enable in configuration
+make minio-stack         # Deploy MinIO object storage
 ```
 
 #### Production Homelab (3+ nodes)
 ```bash
-# Use local-path + Longhorn (recommended)
+# Use local-path + Longhorn + MinIO (recommended)
 make enable-longhorn     # Enable in configuration
+make enable-minio        # Enable in configuration
 make longhorn-stack      # Deploy Longhorn
+make minio-stack         # Deploy MinIO
 ```
 
 #### Advanced/Testing (Any size)
 ```bash
-# Use both storage classes
+# Use all three storage classes
 # Workloads choose optimal storage per use case
+make storage LONGHORN=true MINIO=true  # Deploy all storage types
 ```
 
 ### Storage Commands
@@ -887,6 +898,13 @@ make longhorn-stack     # Deploy Longhorn distributed storage
 make enable-longhorn    # Enable Longhorn in configuration  
 make disable-longhorn   # Disable Longhorn (destroys data!)
 make longhorn-status    # Check Longhorn deployment status
+
+# MinIO management
+make minio-stack        # Deploy MinIO object storage
+make enable-minio       # Enable MinIO in configuration
+make disable-minio      # Disable MinIO in configuration
+make minio-status       # Check MinIO deployment status
+make minio-console      # Access MinIO web console
 
 # Storage verification
 make storage            # Deploy configured storage stack
@@ -905,17 +923,47 @@ kubectl get pods -n longhorn-system
 kubectl get pv | grep longhorn
 ```
 
+**MinIO Specific Commands:**
+```bash
+# Access MinIO Console (Web UI)
+# Direct browser access: http://minio-console.homelab.lan
+make minio-console      # Or use port-forward method
+
+# Access S3 API endpoint
+# S3 endpoint: http://s3.homelab.lan
+curl http://s3.homelab.lan/health/live
+
+# Check MinIO pods and services
+kubectl get pods,svc -n minio
+
+# View MinIO credentials
+make show-credentials SERVICE=minio
+# Or direct kubectl access:
+kubectl get secret -n minio minio-credentials -o jsonpath='{.data.access-key}' | base64 -d
+kubectl get secret -n minio minio-credentials -o jsonpath='{.data.secret-key}' | base64 -d
+
+# Create S3 bucket via API (example with aws-cli)
+aws --endpoint-url http://s3.homelab.lan s3 mb s3://my-bucket
+aws --endpoint-url http://s3.homelab.lan s3 ls
+```
+
 ### Storage Architecture Examples
 
 **Your 3+ Node Production Setup** (recommended):
 ```yaml
-# ansible/inventory/group_vars/all.yml
-storage_type: "hybrid"
-longhorn_enabled: true  # Enable Longhorn for production storage
+# cluster.yaml
+storage:
+  strategy: "hybrid"
+  longhorn:
+    enabled: true  # Enable Longhorn for production storage
+  minio:
+    enabled: true  # Enable MinIO for object storage
+    storage_class: "longhorn"  # Use Longhorn for MinIO persistence
 
 # Available storage classes:
 # - local-path (fast, local storage)
 # - longhorn (replicated, fault-tolerant storage)
+# - minio (S3-compatible object storage)
 ```
 
 **Template Usage with Storage Classes:**
@@ -929,6 +977,31 @@ make deploy-uptime-kuma STORAGE_CLASS=local-path
 
 # Let templates choose defaults (varies by service)
 make deploy-homepage    # Uses local-path by default
+
+# Use MinIO for backup targets and large file storage
+# (Applications configure S3 endpoints directly)
+# S3 endpoint: http://s3.homelab.lan
+# Console: http://minio-console.homelab.lan
+```
+
+**MinIO Integration Examples:**
+```bash
+# Configure Longhorn backups to use MinIO
+kubectl patch settings.longhorn.io backup-target \
+  --type merge -p '{"value":"s3://longhorn-backups@us-east-1/"}'
+
+# Configure application backups to MinIO (example)
+# App deployment with S3 backup configuration:
+env:
+- name: S3_ENDPOINT
+  value: "http://s3.homelab.lan"
+- name: S3_BUCKET
+  value: "app-backups"
+- name: AWS_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: minio-credentials
+      key: access-key
 ```
 
 ### Longhorn Prerequisites
@@ -954,6 +1027,7 @@ sudo systemctl status iscsid
 |---------------|-------------|--------------|----------|
 | **local-path** | 🚀 Fastest | ❌ Node-tied | Logs, cache, single-pod apps |
 | **longhorn** | ⚡ Good | ✅ Highly available | Databases, critical data, production |
+| **minio** | 🌐 Network-dependent | ✅ Highly available | Object storage, backups, media files |
 
 ### Migration Between Storage Classes
 
@@ -996,6 +1070,30 @@ kubectl describe storageclass longhorn
 - **UI not accessible**: Verify Longhorn frontend service is running
 - **Slow performance**: Check network between nodes, consider replica count
 - **Volume stuck**: Check Longhorn manager logs for disk/node issues
+
+**MinIO Issues:**
+```bash
+# Check MinIO installation job status
+kubectl get job -n minio minio-installer
+
+# Check MinIO installer logs
+kubectl logs -n minio job/minio-installer
+
+# Verify MinIO pods are running
+kubectl get pods -n minio -l app=minio
+
+# Check MinIO service endpoints
+kubectl get ingress -n minio
+
+# Verify MinIO credentials secret
+kubectl get secret -n minio minio-credentials -o yaml
+```
+
+**Common MinIO Problems:**
+- **Console not accessible**: Check if ingress is configured and DNS resolves
+- **S3 API connection failed**: Verify MinIO pods are running and ingress routes
+- **Installation stuck**: Check if underlying storage class (Longhorn/local-path) is available
+- **Credentials not working**: Verify minio-credentials secret exists and is valid
 
 **General Storage Issues:**
 - **No storage classes**: Run `make storage` to deploy storage components

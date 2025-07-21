@@ -1,0 +1,209 @@
+{{- if .Values.minio.enabled }}
+---
+# MinIO Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.minio.namespace }}
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+
+---
+# MinIO Credentials Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-credentials
+  namespace: {{ .Values.minio.namespace }}
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+type: Opaque
+data:
+  {{- if .Values.minio.credentials.access_key }}
+  access-key: {{ .Values.minio.credentials.access_key | b64enc }}
+  {{- else }}
+  access-key: {{ randAlphaNum 16 | b64enc }}
+  {{- end }}
+  {{- if .Values.minio.credentials.secret_key }}
+  secret-key: {{ .Values.minio.credentials.secret_key | b64enc }}
+  {{- else }}
+  secret-key: {{ randAlphaNum 32 | b64enc }}
+  {{- end }}
+
+---
+# MinIO Installation Job
+# This job installs MinIO using Helm within the cluster
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-installer
+  namespace: {{ .Values.minio.namespace }}
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio-installer
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "homelab-storage.labels" . | nindent 8 }}
+        app.kubernetes.io/component: minio-installer
+    spec:
+      serviceAccountName: minio-installer
+      restartPolicy: OnFailure
+      containers:
+      - name: helm-installer
+        image: alpine/helm:3.14.0
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            echo "Installing MinIO..."
+            helm repo add minio https://charts.min.io/
+            helm repo update
+            
+            # Get credentials from secret
+            ACCESS_KEY=$(cat /var/secrets/access-key)
+            SECRET_KEY=$(cat /var/secrets/secret-key)
+            
+            # Create values file
+            cat > /tmp/minio-values.yaml << EOF
+            mode: {{ if gt (int .Values.minio.replicas) 1 }}distributed{{ else }}standalone{{ end }}
+            replicas: {{ .Values.minio.replicas }}
+            
+            persistence:
+              enabled: true
+              storageClass: {{ .Values.minio.storage_class | quote }}
+              size: {{ .Values.minio.storage_size | quote }}
+            
+            resources:
+              requests:
+                memory: {{ .Values.minio.resources.memory_limit | default "256Mi" | quote }}
+                cpu: {{ .Values.minio.resources.cpu_limit | default "250m" | quote }}
+              limits:
+                memory: {{ .Values.minio.resources.memory_limit | default "512Mi" | quote }}
+                cpu: {{ .Values.minio.resources.cpu_limit | default "500m" | quote }}
+            
+            existingSecret: minio-credentials
+            
+            ingress:
+              enabled: true
+              ingressClassName: traefik
+              hosts:
+                - host: {{ .Values.minio.api.hostname | default "s3.homelab.lan" | quote }}
+                  paths:
+                    - path: /
+                      pathType: Prefix
+            
+            consoleIngress:
+              enabled: {{ .Values.minio.console.enabled }}
+              ingressClassName: traefik
+              hosts:
+                - host: {{ .Values.minio.console.hostname | default "minio-console.homelab.lan" | quote }}
+                  paths:
+                    - path: /
+                      pathType: Prefix
+            
+            # Enable metrics for monitoring integration
+            metrics:
+              serviceMonitor:
+                enabled: false  # Will be enabled when monitoring is detected
+            
+            # Security settings
+            securityContext:
+              enabled: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              fsGroup: 1000
+            
+            # Network policies
+            networkPolicy:
+              enabled: false  # Simplified for homelab
+            
+            # Buckets to create on startup
+            buckets:
+              - name: backups
+                policy: none
+                purge: false
+              - name: longhorn-backups
+                policy: none
+                purge: false
+            
+            # Users to create (besides root)
+            users: []
+            
+            # Policies
+            policies: []
+            EOF
+            
+            # Install or upgrade MinIO
+            helm upgrade --install minio minio/minio \
+              --namespace {{ .Values.minio.namespace }} \
+              --values /tmp/minio-values.yaml \
+              --wait \
+              --timeout=10m
+            
+            echo "MinIO installation completed successfully!"
+            echo "S3 API available at: {{ .Values.minio.api.hostname | default "s3.homelab.lan" }}"
+            {{- if .Values.minio.console.enabled }}
+            echo "Console available at: {{ .Values.minio.console.hostname | default "minio-console.homelab.lan" }}"
+            {{- end }}
+        volumeMounts:
+        - name: minio-credentials
+          mountPath: /var/secrets
+          readOnly: true
+      volumes:
+      - name: minio-credentials
+        secret:
+          secretName: minio-credentials
+
+---
+# Service Account for MinIO Installer
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minio-installer
+  namespace: {{ .Values.minio.namespace }}
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio-installer
+
+---
+# ClusterRole for MinIO Installer
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: minio-installer
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio-installer
+rules:
+  # Permissions needed to install MinIO via Helm
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+
+---
+# ClusterRoleBinding for MinIO Installer
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: minio-installer
+  labels:
+    {{- include "homelab-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio-installer
+subjects:
+  - kind: ServiceAccount
+    name: minio-installer
+    namespace: {{ .Values.minio.namespace }}
+roleRef:
+  kind: ClusterRole
+  name: minio-installer
+  apiGroup: rbac.authorization.k8s.io
+
+{{- end }}

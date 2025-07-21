@@ -179,12 +179,20 @@ generate_cluster_config() {
         domain=$(prompt_with_default "DNS domain" "homelab.lan")
         
         CYAN "\n🏗️  Step 3: Storage Configuration"
-        local storage_strategy
-        storage_strategy=$(prompt_select "Storage strategy:" \
-            "hybrid" \
-            "local-only" \
+        local default_storage_class enable_longhorn enable_nfs
+        default_storage_class=$(prompt_select "Default storage class:" \
+            "local-path" \
             "longhorn" \
-            "nfs-only")
+            "nfs-csi")
+        
+        enable_longhorn="false"
+        enable_nfs="false"
+        if [[ "$default_storage_class" == "longhorn" ]]; then
+            enable_longhorn="true"
+        elif [[ "$default_storage_class" == "nfs-csi" ]]; then
+            enable_nfs="true"
+            enable_longhorn="true"  # NFS server needs backend storage
+        fi
         
         CYAN "\n🖥️  Step 4: Node Configuration"
         local cluster_name
@@ -207,7 +215,7 @@ generate_cluster_config() {
         
         # Generate configuration from scratch
         generate_custom_config "$config_file" "$cluster_name" "$subnet" "$domain" \
-            "$storage_strategy" "$enable_monitoring" "$enable_gitea" "$enable_homepage" "$auto_bundles"
+            "$default_storage_class" "$enable_longhorn" "$enable_nfs" "$enable_monitoring" "$enable_gitea" "$enable_homepage" "$auto_bundles"
     else
         # Customize template
         CYAN "\n✏️  Step 2: Customize Template"
@@ -246,11 +254,13 @@ generate_custom_config() {
     local cluster_name="$2"
     local subnet="$3"
     local domain="$4"
-    local storage_strategy="$5"
-    local enable_monitoring="$6"
-    local enable_gitea="$7"
-    local enable_homepage="$8"
-    local auto_bundles="$9"
+    local default_storage_class="$5"
+    local enable_longhorn="$6"
+    local enable_nfs="$7"
+    local enable_monitoring="$8"
+    local enable_gitea="$9"
+    local enable_homepage="${10}"
+    local auto_bundles="${11}"
     
     # Extract network base from subnet
     local network_base
@@ -264,27 +274,28 @@ generate_custom_config() {
         bundles_yaml="  auto_deploy_bundles: []"
     fi
     
-    # Storage configuration based on strategy
-    local storage_config
-    case "$storage_strategy" in
-        "local-only")
-            storage_config="  local_path:\n    enabled: true\n    is_default: true\n  nfs:\n    enabled: false\n  longhorn:\n    enabled: false"
-            ;;
-        "hybrid")
-            storage_config="  local_path:\n    enabled: true\n    is_default: true\n  nfs:\n    enabled: true\n    server:\n      ip: \"$network_base.20\"\n      path: \"/export/k8s\"\n  longhorn:\n    enabled: false"
-            ;;
-        "longhorn")
-            storage_config="  local_path:\n    enabled: true\n    is_default: false\n  nfs:\n    enabled: false\n  longhorn:\n    enabled: true\n    replica_count: 3\n    storage_class:\n      is_default: true"
-            ;;
-        "nfs-only")
-            storage_config="  local_path:\n    enabled: true\n    is_default: false\n  nfs:\n    enabled: true\n    server:\n      ip: \"$network_base.20\"\n      path: \"/export/k8s\"\n    storage_class:\n      is_default: true\n  longhorn:\n    enabled: false"
-            ;;
-        *)
-            # Default to hybrid strategy if not specified
-            echo -e "${YELLOW}⚠️  Unknown storage strategy '$storage_strategy', using hybrid${RESET}" >&2
-            storage_config="  local_path:\n    enabled: true\n    is_default: true\n  nfs:\n    enabled: true\n    server:\n      ip: \"$network_base.20\"\n      path: \"/export/k8s\"\n  longhorn:\n    enabled: false"
-            ;;
-    esac
+    # Storage configuration based on enabled features
+    local storage_config="  local_path:\n    enabled: true"
+    
+    # Note: Default storage class is set via storage.default_storage_class field only
+    
+    # NFS configuration
+    storage_config+="\n  nfs:\n    enabled: $enable_nfs"
+    if [[ "$enable_nfs" == "true" ]]; then
+        storage_config+="\n    namespace: \"nfs-server\""
+        storage_config+="\n    backend_storage_class: \"longhorn\""
+        storage_config+="\n    storage_size: \"250Gi\""
+        storage_config+="\n    storage_class:"
+        storage_config+="\n      name: \"nfs-csi\""
+    fi
+    
+    # Longhorn configuration
+    storage_config+="\n  longhorn:\n    enabled: $enable_longhorn"
+    if [[ "$enable_longhorn" == "true" ]]; then
+        storage_config+="\n    replica_count: 3"
+        storage_config+="\n    storage_class:"
+        storage_config+="\n      name: \"longhorn\""
+    fi
     
     # Generate configuration file
     cat > "$config_file" << EOF
@@ -299,6 +310,9 @@ cluster:
 
 network:
   subnet: "$subnet"
+  gateway: "$network_base.1"
+  pod_cidr: "10.42.0.0/16"
+  service_cidr: "10.43.0.0/16"
   dns:
     enabled: true
     server_ip: "$network_base.20"
@@ -306,7 +320,8 @@ network:
 
 nodes:
   ssh:
-    key_path: "~/.ssh/id_ed25519.pub"
+    public_key_path: "~/.ssh/id_ed25519.pub"
+    private_key_path: "~/.ssh/id_ed25519"
     username: "ubuntu"
     
   cluster_nodes:
@@ -329,8 +344,7 @@ nodes:
       role: "storage"
 
 storage:
-  strategy: "$storage_strategy"
-  default_class: "local-path"
+  default_storage_class: "$default_storage_class"
 $storage_config
 
 components:
@@ -344,6 +358,8 @@ components:
     enabled: $enable_gitea
   homepage:
     enabled: $enable_homepage
+  minio:
+    enabled: false
 
 workloads:
 $bundles_yaml
@@ -380,6 +396,9 @@ cluster:
 
 network:
   subnet: "192.168.50.0/24"
+  gateway: "192.168.50.1"
+  pod_cidr: "10.42.0.0/16"
+  service_cidr: "10.43.0.0/16"
   dns:
     enabled: true
     server_ip: "192.168.50.20"
@@ -387,7 +406,8 @@ network:
 
 nodes:
   ssh:
-    key_path: "~/.ssh/id_ed25519.pub"
+    public_key_path: "~/.ssh/id_ed25519.pub"
+    private_key_path: "~/.ssh/id_ed25519"
     username: "ubuntu"
     
   cluster_nodes:
@@ -410,16 +430,12 @@ nodes:
       role: "storage"
 
 storage:
-  strategy: "hybrid"
-  default_class: "local-path"
+  default_storage_class: "local-path"
   local_path:
     enabled: true
     is_default: true
   nfs:
-    enabled: true
-    server:
-      ip: "192.168.50.20"
-      path: "/export/k8s"
+    enabled: false
   longhorn:
     enabled: false
 
@@ -434,6 +450,8 @@ components:
     enabled: true
   homepage:
     enabled: true
+  minio:
+    enabled: false
 
 workloads:
   auto_deploy_bundles: []

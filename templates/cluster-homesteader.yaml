@@ -16,6 +16,9 @@ cluster:
 
 network:
   subnet: "192.168.50.0/24"
+  gateway: "192.168.50.1"
+  pod_cidr: "10.42.0.0/16"
+  service_cidr: "10.43.0.0/16"
   dns:
     enabled: true
     # DNS runs on the master nodes, accessed via the VIP
@@ -27,7 +30,8 @@ network:
 
 nodes:
   ssh:
-    key_path: "~/.ssh/id_ed25519.pub"
+    public_key_path: "~/.ssh/id_ed25519.pub"
+    private_key_path: "~/.ssh/id_ed25519"
     username: "ubuntu"
     
   cluster_nodes:
@@ -63,25 +67,22 @@ nodes:
         memory: "8Gi"
 
 storage:
-  strategy: "hybrid"
-  default_class: "longhorn"
+  default_storage_class: "longhorn"
   
   local_path:
     enabled: true
-    is_default: false
   
   longhorn:
     enabled: true
-    is_default: true
     replica_count: 3
-
-  # MinIO provides a resilient, S3-compatible object storage layer
-  minio:
-    enabled: true
-    namespace: "minio"
-    storage_class: "longhorn"
-    replicas: 3
-    storage_size: "100Gi"
+  
+  nfs:
+    enabled: false  # Can be enabled for RWX shared storage needs
+    namespace: "nfs-server"
+    backend_storage_class: "longhorn"  # Use replicated storage for resilience
+    storage_size: "250Gi"
+    storage_class:
+      name: "nfs-csi"
 
 components:
   sealed_secrets:
@@ -102,6 +103,18 @@ components:
   homepage:
     enabled: true
     namespace: "homepage"
+  
+  minio:
+    enabled: true
+    namespace: "minio"
+    storage_class: "longhorn"
+    replicas: 3
+    storage_size: "100Gi"
+    console:
+      enabled: true
+      hostname: "minio-console.homelab.lan"
+    api:
+      hostname: "s3.homelab.lan"
 
 workloads:
   auto_deploy_bundles:

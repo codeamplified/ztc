@@ -125,8 +125,13 @@ validate_config() {
     local required_fields=(
         "cluster.name"
         "network.subnet"
+        "network.gateway"
+        "network.pod_cidr"
+        "network.service_cidr"
+        "nodes.ssh.public_key_path"
+        "nodes.ssh.private_key_path"
         "nodes.cluster_nodes"
-        "storage.strategy"
+        "storage.default_storage_class"
         "components"
     )
     
@@ -137,29 +142,44 @@ validate_config() {
         fi
     done
     
-    # Validate storage strategy
-    local storage_strategy
-    storage_strategy=$(config_get "storage.strategy" "$config_file")
-    case "$storage_strategy" in
-        "local-only"|"hybrid"|"longhorn"|"nfs-only")
-            echo -e "${GREEN}✅ Valid storage strategy: $storage_strategy${RESET}"
-            ;;
-        *)
-            echo -e "${RED}❌ Invalid storage strategy: $storage_strategy${RESET}" >&2
-            echo -e "${YELLOW}   Valid options: local-only, hybrid, longhorn, nfs-only${RESET}" >&2
-            ((errors++))
-            ;;
-    esac
+    # Validate default storage class
+    local default_storage_class
+    default_storage_class=$(config_get "storage.default_storage_class" "$config_file")
+    if [[ -z "$default_storage_class" || "$default_storage_class" == "null" ]]; then
+        echo -e "${RED}❌ Default storage class not specified${RESET}" >&2
+        ((errors++))
+    else
+        echo -e "${GREEN}✅ Default storage class: $default_storage_class${RESET}"
+    fi
     
     # Validate network subnet
-    local subnet
+    local subnet pod_cidr service_cidr
     subnet=$(config_get "network.subnet" "$config_file")
+    pod_cidr=$(config_get "network.pod_cidr" "$config_file")
+    service_cidr=$(config_get "network.service_cidr" "$config_file")
+    
     if [[ ! "$subnet" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$ ]]; then
         echo -e "${RED}❌ Invalid network subnet format: $subnet${RESET}" >&2
         echo -e "${YELLOW}   Expected format: 192.168.50.0/24${RESET}" >&2
         ((errors++))
     else
         echo -e "${GREEN}✅ Valid network subnet: $subnet${RESET}"
+    fi
+    
+    if [[ ! "$pod_cidr" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$ ]]; then
+        echo -e "${RED}❌ Invalid pod CIDR format: $pod_cidr${RESET}" >&2
+        echo -e "${YELLOW}   Expected format: 10.42.0.0/16${RESET}" >&2
+        ((errors++))
+    else
+        echo -e "${GREEN}✅ Valid pod CIDR: $pod_cidr${RESET}"
+    fi
+    
+    if [[ ! "$service_cidr" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$ ]]; then
+        echo -e "${RED}❌ Invalid service CIDR format: $service_cidr${RESET}" >&2
+        echo -e "${YELLOW}   Expected format: 10.43.0.0/16${RESET}" >&2
+        ((errors++))
+    else
+        echo -e "${GREEN}✅ Valid service CIDR: $service_cidr${RESET}"
     fi
     
     # Validate node IPs are within subnet
@@ -178,10 +198,15 @@ validate_config() {
     done <<< "$nodes"
     
     # Check storage configuration consistency
-    if [[ "$storage_strategy" == "longhorn" ]]; then
+    if [[ "$default_storage_class" == "longhorn" ]]; then
         if ! config_has "storage.longhorn.enabled" "$config_file" || \
            [[ "$(config_get "storage.longhorn.enabled" "$config_file")" != "true" ]]; then
-            echo -e "${YELLOW}⚠️  Storage strategy is 'longhorn' but Longhorn is not enabled${RESET}" >&2
+            echo -e "${YELLOW}⚠️  Default storage class is 'longhorn' but Longhorn is not enabled${RESET}" >&2
+        fi
+    elif [[ "$default_storage_class" == "nfs-csi" ]]; then
+        if ! config_has "storage.nfs.enabled" "$config_file" || \
+           [[ "$(config_get "storage.nfs.enabled" "$config_file")" != "true" ]]; then
+            echo -e "${YELLOW}⚠️  Default storage class is 'nfs-csi' but NFS is not enabled${RESET}" >&2
         fi
     fi
     
@@ -210,12 +235,14 @@ show_config_summary() {
     
     echo -e "${GREEN}Network:${RESET}"
     echo "  Subnet: $(config_get "network.subnet" "$config_file")"
+    echo "  Gateway: $(config_get "network.gateway" "$config_file")"
+    echo "  Pod CIDR: $(config_get "network.pod_cidr" "$config_file")"
+    echo "  Service CIDR: $(config_get "network.service_cidr" "$config_file")"
     echo "  DNS Domain: $(config_get "network.dns.domain" "$config_file")"
     echo ""
     
     echo -e "${GREEN}Storage:${RESET}"
-    echo "  Strategy: $(config_get "storage.strategy" "$config_file")"
-    echo "  Default Class: $(config_get "storage.default_class" "$config_file")"
+    echo "  Default Storage Class: $(config_get "storage.default_storage_class" "$config_file")"
     echo "  Local Path: $(config_get "storage.local_path.enabled" "$config_file")"
     echo "  NFS: $(config_get "storage.nfs.enabled" "$config_file")"
     echo "  Longhorn: $(config_get "storage.longhorn.enabled" "$config_file")"
@@ -236,6 +263,7 @@ show_config_summary() {
     echo -e "${GREEN}Components:${RESET}"
     echo "  Monitoring: $(config_get "components.monitoring.enabled" "$config_file")"
     echo "  Gitea: $(config_get "components.gitea.enabled" "$config_file")"
+    echo "  MinIO: $(config_get "components.minio.enabled" "$config_file")"
     echo "  Homepage: $(config_get "components.homepage.enabled" "$config_file")"
     echo "  ArgoCD: $(config_get "components.argocd.enabled" "$config_file")"
     echo ""
@@ -274,11 +302,11 @@ list_templates() {
         echo -e "${GREEN}$template_name${RESET}: $description"
         
         # Show key characteristics
-        local storage_strategy nodes_count
-        storage_strategy=$(config_get "storage.strategy" "$template" 2>/dev/null || echo "unknown")
+        local default_storage_class nodes_count
+        default_storage_class=$(config_get "storage.default_storage_class" "$template" 2>/dev/null || echo "unknown")
         nodes_count=$(config_get_keys "nodes.cluster_nodes" "$template" 2>/dev/null | wc -l || echo "unknown")
         
-        echo "  Storage: $storage_strategy, Nodes: $nodes_count"
+        echo "  Default Storage: $default_storage_class, Nodes: $nodes_count"
         echo ""
     done
 }
@@ -381,7 +409,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             echo "  $0 validate"
             echo "  $0 summary"
             echo "  $0 use-template homelab"
-            echo "  $0 get storage.strategy"
+            echo "  $0 get storage.default_storage_class"
             ;;
     esac
 fi

@@ -11,6 +11,9 @@ cluster:
 
 network:
   subnet: "192.168.50.0/24"
+  gateway: "192.168.50.1"
+  pod_cidr: "10.42.0.0/16"
+  service_cidr: "10.43.0.0/16"
   dns:
     enabled: true
     # In this mode, DNS runs on the master node
@@ -22,7 +25,8 @@ network:
 
 nodes:
   ssh:
-    key_path: "~/.ssh/id_ed25519.pub"
+    public_key_path: "~/.ssh/id_ed25519.pub"
+    private_key_path: "~/.ssh/id_ed25519"
     username: "ubuntu"
     
   cluster_nodes:
@@ -40,17 +44,15 @@ nodes:
         memory: "4Gi"
 
 storage:
-  strategy: "local-only"
-  default_class: "local-path"
+  default_storage_class: "local-path"
   
   local_path:
     enabled: true
-    is_default: true
   
   longhorn:
     enabled: false
-
-  minio:
+  
+  nfs:
     enabled: false
 
 components:
@@ -72,6 +74,9 @@ components:
   homepage:
     enabled: true
     namespace: "homepage"
+  
+  minio:
+    enabled: false
 
 workloads:
   auto_deploy_bundles:

@@ -95,13 +95,33 @@
     "network": {
       "type": "object",
       "description": "Network configuration for the cluster",
-      "required": ["subnet", "dns"],
+      "required": ["subnet", "gateway", "pod_cidr", "service_cidr", "dns"],
       "properties": {
         "subnet": {
           "type": "string",
           "description": "Primary cluster subnet in CIDR notation",
           "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\/(?:[0-9]|[1-2][0-9]|3[0-2])$",
           "examples": ["192.168.50.0/24", "10.0.0.0/24"]
+        },
+        "gateway": {
+          "type": "string",
+          "description": "Default gateway IP address for static IP configuration",
+          "format": "ipv4",
+          "examples": ["192.168.50.1", "10.0.0.1"]
+        },
+        "pod_cidr": {
+          "type": "string",
+          "description": "Kubernetes Pod network CIDR (--cluster-cidr). Must not overlap with node subnet.",
+          "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\/(?:[0-9]|[1-2][0-9]|3[0-2])$",
+          "examples": ["10.42.0.0/16", "172.16.0.0/16"],
+          "default": "10.42.0.0/16"
+        },
+        "service_cidr": {
+          "type": "string",
+          "description": "Kubernetes Service network CIDR (--service-cidr). Must not overlap with node or pod subnets.",
+          "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\/(?:[0-9]|[1-2][0-9]|3[0-2])$",
+          "examples": ["10.43.0.0/16", "172.17.0.0/16"],
+          "default": "10.43.0.0/16"
         },
         "dns": {
           "type": "object",
@@ -148,14 +168,20 @@
       "properties": {
         "ssh": {
           "type": "object",
-          "description": "SSH configuration for node access",
-          "required": ["key_path", "username"],
+          "description": "SSH configuration for node access and provisioning",
+          "required": ["public_key_path", "private_key_path", "username"],
           "properties": {
-            "key_path": {
+            "public_key_path": {
               "type": "string",
-              "description": "Path to SSH public key file",
-              "pattern": "^(~|\\/|\\.).*\\.(pub|key)$",
+              "description": "Path to SSH public key file (used by cloud-init for authorized_keys)",
+              "pattern": "^(~|\\/|\\.).*\\.pub$",
               "examples": ["~/.ssh/id_ed25519.pub", "~/.ssh/id_rsa.pub"]
+            },
+            "private_key_path": {
+              "type": "string",
+              "description": "Path to SSH private key file (used by Ansible for node access)",
+              "pattern": "^(~|\\/|\\.)[^.]*$",
+              "examples": ["~/.ssh/id_ed25519", "~/.ssh/id_rsa"]
             },
             "username": {
               "type": "string",
@@ -215,30 +241,19 @@
     },
     "storage": {
       "type": "object",
-      "description": "Storage system configuration",
-      "required": ["strategy", "default_class"],
+      "description": "Configuration for Kubernetes volume provisioners (StorageClasses). Defines how workloads request persistent block (RWO) and file (RWX) storage via PVCs.",
+      "required": ["default_storage_class"],
       "properties": {
-        "strategy": {
+        "default_storage_class": {
           "type": "string",
-          "description": "Overall storage strategy for the cluster",
-          "enum": ["local-only", "hybrid", "longhorn"],
-          "default": "hybrid"
-        },
-        "default_class": {
-          "type": "string",
-          "description": "Default storage class for new PVCs",
-          "enum": ["local-path", "longhorn"],
+          "description": "The name of the StorageClass to be marked as the default for the cluster. The deployment tool should validate that this provider is enabled.",
           "default": "local-path"
         },
         "local_path": {
           "type": "object",
-          "description": "Local path provisioner configuration (k3s built-in)",
+          "description": "Provides basic RWO block storage on a single node via the built-in k3s provisioner. Fast but not replicated.",
           "properties": {
             "enabled": {
-              "type": "boolean",
-              "default": true
-            },
-            "is_default": {
               "type": "boolean",
               "default": true
             }
@@ -247,11 +262,15 @@
         },
         "longhorn": {
           "type": "object",
-          "description": "Longhorn distributed storage configuration",
+          "description": "Provides replicated RWO block storage across the cluster. Resilient and feature-rich.",
           "properties": {
             "enabled": {
               "type": "boolean",
               "default": false
+            },
+            "namespace": {
+              "type": "string",
+              "default": "longhorn-system"
             },
             "replica_count": {
               "type": "integer",
@@ -265,10 +284,6 @@
                 "name": {
                   "type": "string",
                   "default": "longhorn"
-                },
-                "is_default": {
-                  "type": "boolean",
-                  "default": false
                 },
                 "reclaim_policy": {
                   "type": "string",
@@ -296,103 +311,36 @@
           },
           "additionalProperties": false
         },
-        "minio": {
+        "nfs": {
           "type": "object",
-          "description": "MinIO S3-compatible object storage configuration",
+          "description": "Provides shared RWX file storage, accessible by multiple pods simultaneously. Useful for shared configurations or uploads.",
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Enable MinIO object storage",
               "default": false
             },
             "namespace": {
               "type": "string",
-              "description": "Kubernetes namespace for MinIO deployment",
               "pattern": "^[a-z0-9-]+$",
-              "default": "minio"
+              "default": "nfs-server"
             },
-            "storage_class": {
+            "backend_storage_class": {
               "type": "string",
-              "description": "Storage class for MinIO persistent volumes",
-              "enum": ["local-path", "longhorn"],
+              "description": "The block storage class (e.g., 'longhorn') that the NFS server itself will use for its data.",
               "default": "longhorn"
-            },
-            "replicas": {
-              "type": "integer",
-              "description": "Number of MinIO replicas for distributed mode",
-              "minimum": 1,
-              "maximum": 32,
-              "default": 3
             },
             "storage_size": {
               "type": "string",
-              "description": "Storage size per MinIO instance",
               "pattern": "^\\d+(\\.\\d+)?(Ti|Gi|Mi)$",
-              "default": "100Gi"
+              "default": "250Gi"
             },
-            "console": {
+            "storage_class": {
               "type": "object",
-              "description": "MinIO console (web UI) configuration",
               "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "default": true
+                "name": {
+                  "type": "string",
+                  "default": "nfs-csi"
                 },
-                "hostname": {
-                  "type": "string",
-                  "description": "Hostname for MinIO console ingress",
-                  "pattern": "^[a-z0-9.-]+$",
-                  "default": "minio-console.homelab.lan"
-                }
-              },
-              "additionalProperties": false
-            },
-            "api": {
-              "type": "object",
-              "description": "MinIO S3 API configuration",
-              "properties": {
-                "hostname": {
-                  "type": "string",
-                  "description": "Hostname for MinIO S3 API ingress",
-                  "pattern": "^[a-z0-9.-]+$",
-                  "default": "s3.homelab.lan"
-                }
-              },
-              "additionalProperties": false
-            },
-            "credentials": {
-              "type": "object",
-              "description": "MinIO access credentials (auto-generated if not specified)",
-              "properties": {
-                "access_key": {
-                  "type": "string",
-                  "description": "MinIO access key (leave empty for auto-generation)",
-                  "minLength": 3,
-                  "maxLength": 20
-                },
-                "secret_key": {
-                  "type": "string",
-                  "description": "MinIO secret key (leave empty for auto-generation)",
-                  "minLength": 8,
-                  "maxLength": 40
-                }
-              },
-              "additionalProperties": false
-            },
-            "resources": {
-              "type": "object",
-              "description": "Resource limits for MinIO pods",
-              "properties": {
-                "memory_limit": {
-                  "type": "string",
-                  "pattern": "^\\d+(\\.\\d+)?(Gi|Mi)$",
-                  "default": "512Mi"
-                },
-                "cpu_limit": {
-                  "type": "string",
-                  "pattern": "^\\d+(\\.\\d+)?m?$",
-                  "default": "500m"
-                }
               },
               "additionalProperties": false
             }
@@ -546,6 +494,108 @@
           },
           "additionalProperties": false
         },
+        "minio": {
+          "type": "object",
+          "description": "Deploys a standalone S3-compatible object storage service. Consumes a StorageClass for its backend, but provides storage to other apps via an S3 API, not a PVC.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable MinIO object storage",
+              "default": false
+            },
+            "namespace": {
+              "type": "string",
+              "description": "Kubernetes namespace for MinIO deployment",
+              "pattern": "^[a-z0-9-]+$",
+              "default": "minio"
+            },
+            "storage_class": {
+              "type": "string",
+              "description": "The Kubernetes StorageClass MinIO should use for its own persistent data.",
+              "default": "longhorn"
+            },
+            "replicas": {
+              "type": "integer",
+              "description": "Number of MinIO replicas for distributed mode",
+              "minimum": 1,
+              "maximum": 32,
+              "default": 3
+            },
+            "storage_size": {
+              "type": "string",
+              "description": "Storage size per MinIO instance",
+              "pattern": "^\\d+(\\.\\d+)?(Ti|Gi|Mi)$",
+              "default": "100Gi"
+            },
+            "console": {
+              "type": "object",
+              "description": "MinIO console (web UI) configuration",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "hostname": {
+                  "type": "string",
+                  "description": "Hostname for MinIO console ingress",
+                  "pattern": "^[a-z0-9.-]+$",
+                  "default": "minio-console.homelab.lan"
+                }
+              },
+              "additionalProperties": false
+            },
+            "api": {
+              "type": "object",
+              "description": "MinIO S3 API configuration",
+              "properties": {
+                "hostname": {
+                  "type": "string",
+                  "description": "Hostname for MinIO S3 API ingress",
+                  "pattern": "^[a-z0-9.-]+$",
+                  "default": "s3.homelab.lan"
+                }
+              },
+              "additionalProperties": false
+            },
+            "credentials": {
+              "type": "object",
+              "description": "MinIO access credentials (auto-generated if not specified)",
+              "properties": {
+                "access_key": {
+                  "type": "string",
+                  "description": "MinIO access key (leave empty for auto-generation)",
+                  "minLength": 3,
+                  "maxLength": 20
+                },
+                "secret_key": {
+                  "type": "string",
+                  "description": "MinIO secret key (leave empty for auto-generation)",
+                  "minLength": 8,
+                  "maxLength": 40
+                }
+              },
+              "additionalProperties": false
+            },
+            "resources": {
+              "type": "object",
+              "description": "Resource limits for MinIO pods",
+              "properties": {
+                "memory_limit": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d+)?(Gi|Mi)$",
+                  "default": "512Mi"
+                },
+                "cpu_limit": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d+)?m?$",
+                  "default": "500m"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
         "homepage": {
           "type": "object",
           "description": "Homepage dashboard for unified service access",
@@ -599,7 +649,7 @@
           "properties": {
             "default_storage_class": {
               "type": "string",
-              "enum": ["local-path", "longhorn"],
+              "description": "Default StorageClass for workload templates. Should be a valid, enabled provider.",
               "default": "local-path"
             },
             "default_memory_limit": {
@@ -717,7 +767,8 @@
           "properties": {
             "version": {
               "type": "string",
-              "default": "latest"
+              "description": "Kubernetes version for K3s installation. Use 'latest' for newest or specify version like 'v1.28.4+k3s1' for reproducible builds.",
+              "default": "v1.28.4+k3s1"
             },
             "container_runtime": {
               "type": "string",

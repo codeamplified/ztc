@@ -281,16 +281,15 @@ storage: ## Deploy storage components (Usage: make storage [LONGHORN=true] [MINI
 	@command -v helm >/dev/null || (echo "$(RED)❌ Helm not installed$(RESET)" && exit 1)
 	@kubectl cluster-info >/dev/null 2>&1 || (echo "$(RED)❌ Cluster not accessible. Run 'make copy-kubeconfig' first$(RESET)" && exit 1)
 	@chmod +x scripts/lib/config-reader.sh
-	@STORAGE_STRATEGY=$$(./scripts/lib/config-reader.sh get storage.strategy 2>/dev/null || echo "hybrid"); \
+	@DEFAULT_STORAGE_CLASS=$$(./scripts/lib/config-reader.sh get storage.default_storage_class 2>/dev/null || echo "local-path"); \
 	LONGHORN_ENABLED=$$(./scripts/lib/config-reader.sh get storage.longhorn.enabled 2>/dev/null || echo "false"); \
-	MINIO_ENABLED=$$(./scripts/lib/config-reader.sh get storage.minio.enabled 2>/dev/null || echo "false"); \
-	DEFAULT_CLASS=$$(./scripts/lib/config-reader.sh get storage.default_class 2>/dev/null || echo "local-path"); \
+	MINIO_ENABLED=$$(./scripts/lib/config-reader.sh get components.minio.enabled 2>/dev/null || echo "false"); \
 	LONGHORN_REPLICAS=$$(./scripts/lib/config-reader.sh get storage.longhorn.replica_count 2>/dev/null || echo "3"); \
-	MINIO_REPLICAS=$$(./scripts/lib/config-reader.sh get storage.minio.replicas 2>/dev/null || echo "3"); \
-	MINIO_STORAGE_CLASS=$$(./scripts/lib/config-reader.sh get storage.minio.storage_class 2>/dev/null || echo "longhorn"); \
+	MINIO_REPLICAS=$$(./scripts/lib/config-reader.sh get components.minio.replicas 2>/dev/null || echo "3"); \
+	MINIO_STORAGE_CLASS=$$(./scripts/lib/config-reader.sh get components.minio.storage_class 2>/dev/null || echo "longhorn"); \
 	if [ -n "$(LONGHORN)" ]; then LONGHORN_ENABLED="$(LONGHORN)"; fi; \
 	if [ -n "$(MINIO)" ]; then MINIO_ENABLED="$(MINIO)"; fi; \
-	echo "$(CYAN)Configuration: Strategy=$$STORAGE_STRATEGY, Default=$$DEFAULT_CLASS$(RESET)"; \
+	echo "$(CYAN)Configuration: Default Storage Class=$$DEFAULT_STORAGE_CLASS$(RESET)"; \
 	echo "$(CYAN)Options: LONGHORN=$$LONGHORN_ENABLED, MINIO=$$MINIO_ENABLED$(RESET)"; \
 	if [ "$$LONGHORN_ENABLED" = "true" ]; then \
 		echo "$(YELLOW)⚠️  Longhorn requires open-iscsi on all nodes$(RESET)"; \

@@ -74,7 +74,14 @@ storage:
   
   longhorn:
     enabled: true
+    namespace: "longhorn-system"
     replica_count: 3
+    storage_class:
+      name: "longhorn"
+      reclaim_policy: "Delete"
+    settings:
+      backup_target: ""
+      default_data_path: "/var/lib/longhorn/"
   
   nfs:
     enabled: false  # Can be enabled for RWX shared storage needs
@@ -95,14 +102,33 @@ components:
   monitoring:
     enabled: true
     namespace: "monitoring"
+    components:
+      prometheus: true
+      grafana: true
+      alertmanager: true
+    resources:
+      prometheus:
+        memory_limit: "2Gi"
+        storage_size: "20Gi"
+      grafana:
+        memory_limit: "256Mi"
   
   gitea:
     enabled: true
     namespace: "gitea"
+    features:
+      container_registry: true
+      actions_runner: false
+    resources:
+      memory_limit: "512Mi"
+      storage_size: "10Gi"
   
   homepage:
     enabled: true
     namespace: "homepage"
+    features:
+      service_discovery: true
+      cluster_metrics: true
   
   minio:
     enabled: true
@@ -115,8 +141,49 @@ components:
       hostname: "minio-console.homelab.lan"
     api:
       hostname: "s3.homelab.lan"
+    credentials:
+      access_key: ""
+      secret_key: ""
+    resources:
+      memory_limit: "512Mi"
+      cpu_limit: "500m"
 
 workloads:
   auto_deploy_bundles:
     - "starter"
     - "monitoring"
+  templates:
+    default_storage_class: "longhorn"
+    default_memory_limit: "256Mi"
+    default_cpu_limit: "200m"
+
+deployment:
+  phases:
+    infrastructure: true
+    secrets: true
+    networking: true
+    storage: true
+    system_components: true
+    gitops: true
+    workloads: true
+  options:
+    wait_for_ready: true
+    timeout_minutes: 15
+    retry_failed: true
+    backup_on_success: true
+
+advanced:
+  ansible:
+    inventory_path: "ansible/inventory/hosts.ini"
+    vault_password_file: ".ansible-vault-password"
+  kubernetes:
+    version: "v1.28.4+k3s1"
+    container_runtime: "containerd"
+  security:
+    auto_generate_passwords: true
+    password_length: 32
+    enable_rbac: true
+  backup:
+    auto_backup_secrets: true
+    backup_location: "."
+    retention_days: 30

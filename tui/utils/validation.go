@@ -22,17 +22,30 @@ type Validation struct {
 
 // ValidationError represents a schema validation error with context
 type ValidationError struct {
-	Field       string `json:"field"`
-	Message     string `json:"message"`
-	Value       string `json:"value,omitempty"`
-	Suggestion  string `json:"suggestion,omitempty"`
-	SchemaPath  string `json:"schema_path,omitempty"`
+	Field         string `json:"field"`
+	Message       string `json:"message"`
+	Value         string `json:"value,omitempty"`
+	Suggestion    string `json:"suggestion,omitempty"`
+	SchemaPath    string `json:"schema_path,omitempty"`
+	ErrorType     string `json:"error_type,omitempty"` // enum, pattern, required, etc.
+	FieldPath     string `json:"field_path,omitempty"` // JSONPath to field
+	SeverityLevel string `json:"severity,omitempty"`   // error, warning, info
 }
 
 // ValidationResult contains validation results and errors
 type ValidationResult struct {
-	Valid  bool              `json:"valid"`
-	Errors []ValidationError `json:"errors,omitempty"`
+	Valid    bool              `json:"valid"`
+	Errors   []ValidationError `json:"errors,omitempty"`
+	Warnings []ValidationError `json:"warnings,omitempty"`
+	Summary  ValidationSummary `json:"summary"`
+}
+
+// ValidationSummary provides overview of validation results
+type ValidationSummary struct {
+	TotalErrors   int            `json:"total_errors"`
+	TotalWarnings int            `json:"total_warnings"`
+	FieldsChecked int            `json:"fields_checked"`
+	Categories    map[string]int `json:"category_counts"`
 }
 
 // Global validator instance
@@ -49,6 +62,28 @@ func GetValidator() *Validation {
 	return validator
 }
 
+// ValidateSchemaFile validates that the schema file itself is valid JSON
+func (v *Validation) ValidateSchemaFile() error {
+	// Check if schema file exists
+	if _, err := os.Stat(v.schemaPath); os.IsNotExist(err) {
+		return fmt.Errorf("❌ Schema file not found: %s", v.schemaPath)
+	}
+
+	// Read schema file
+	schemaBytes, err := os.ReadFile(v.schemaPath)
+	if err != nil {
+		return fmt.Errorf("❌ Failed to read schema file: %w", err)
+	}
+
+	// Test JSON parsing
+	var schemaObj interface{}
+	if err := json.Unmarshal(schemaBytes, &schemaObj); err != nil {
+		return fmt.Errorf("❌ Invalid JSON in schema file:\n%s\n\n💡 Suggestion: Check for trailing commas, missing quotes, or syntax errors in %s", err.Error(), v.schemaPath)
+	}
+
+	return nil
+}
+
 // LoadSchema loads and parses the JSON schema file
 func (v *Validation) LoadSchema() error {
 	v.mutex.Lock()
@@ -58,24 +93,24 @@ func (v *Validation) LoadSchema() error {
 		return nil // Already loaded
 	}
 
-	// Check if schema file exists
-	if _, err := os.Stat(v.schemaPath); os.IsNotExist(err) {
-		return fmt.Errorf("schema file not found: %s", v.schemaPath)
+	// First validate schema file integrity
+	if err := v.ValidateSchemaFile(); err != nil {
+		return err
 	}
 
 	// Read schema file
 	schemaBytes, err := os.ReadFile(v.schemaPath)
 	if err != nil {
-		return fmt.Errorf("failed to read schema file: %w", err)
+		return fmt.Errorf("❌ Failed to read schema file: %w", err)
 	}
 
 	// Create schema loader
 	schemaLoader := gojsonschema.NewBytesLoader(schemaBytes)
-	
+
 	// Compile schema
 	schema, err := gojsonschema.NewSchema(schemaLoader)
 	if err != nil {
-		return fmt.Errorf("failed to compile schema: %w", err)
+		return fmt.Errorf("❌ Failed to compile schema: %w\n\n💡 Suggestion: The JSON schema has structural issues. Check the schema syntax in %s", err, v.schemaPath)
 	}
 
 	v.schema = schema
@@ -109,10 +144,14 @@ func (v *Validation) ValidateClusterConfig(config *ClusterConfig) (*ValidationRe
 		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 
-	// Convert results
+	// Convert results with enhanced error categorization
 	validationResult := &ValidationResult{
-		Valid:  result.Valid(),
-		Errors: make([]ValidationError, 0),
+		Valid:    result.Valid(),
+		Errors:   make([]ValidationError, 0),
+		Warnings: make([]ValidationError, 0),
+		Summary: ValidationSummary{
+			Categories: make(map[string]int),
+		},
 	}
 
 	// Convert schema errors to our format
@@ -121,13 +160,33 @@ func (v *Validation) ValidateClusterConfig(config *ClusterConfig) (*ValidationRe
 			Field:      err.Field(),
 			Message:    err.Description(),
 			SchemaPath: err.Context().String(),
+			ErrorType:  err.Type(),
+			FieldPath:  err.Context().String(),
 		}
+
+		// Categorize error severity
+		severity := categorizeErrorSeverity(err.Type(), err.Field())
+		validationErr.SeverityLevel = severity
 
 		// Add helpful suggestions for common errors
 		validationErr.Suggestion = generateSuggestion(err.Type(), err.Field(), err.Description())
-		
-		validationResult.Errors = append(validationResult.Errors, validationErr)
+
+		// Add to appropriate category
+		if severity == "warning" {
+			validationResult.Warnings = append(validationResult.Warnings, validationErr)
+		} else {
+			validationResult.Errors = append(validationResult.Errors, validationErr)
+		}
+
+		// Update category counts
+		category := getErrorCategory(err.Type(), err.Field())
+		validationResult.Summary.Categories[category]++
 	}
+
+	// Update summary counts
+	validationResult.Summary.TotalErrors = len(validationResult.Errors)
+	validationResult.Summary.TotalWarnings = len(validationResult.Warnings)
+	validationResult.Summary.FieldsChecked = countConfigFields(config)
 
 	return validationResult, nil
 }
@@ -182,12 +241,135 @@ func (v *ValidationResult) FormatErrors() string {
 	return builder.String()
 }
 
+// FormatWarnings converts validation warnings to user-friendly messages
+func (v *ValidationResult) FormatWarnings() string {
+	if len(v.Warnings) == 0 {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.WriteString("⚠️ Configuration warnings:\n\n")
+
+	for i, warning := range v.Warnings {
+		builder.WriteString(fmt.Sprintf("%d. %s\n", i+1, formatSingleError(warning)))
+		if warning.Suggestion != "" {
+			builder.WriteString(fmt.Sprintf("   💡 Suggestion: %s\n", warning.Suggestion))
+		}
+		builder.WriteString("\n")
+	}
+
+	return builder.String()
+}
+
+// FormatSummary provides a quick overview of validation results
+func (v *ValidationResult) FormatSummary() string {
+	var builder strings.Builder
+
+	if v.Valid {
+		builder.WriteString("✅ Configuration is valid")
+	} else {
+		builder.WriteString(fmt.Sprintf("❌ %d validation errors", v.Summary.TotalErrors))
+	}
+
+	if v.Summary.TotalWarnings > 0 {
+		builder.WriteString(fmt.Sprintf(" ⚠️ %d warnings", v.Summary.TotalWarnings))
+	}
+
+	if len(v.Summary.Categories) > 0 {
+		builder.WriteString(" (")
+		categories := make([]string, 0, len(v.Summary.Categories))
+		for category, count := range v.Summary.Categories {
+			categories = append(categories, fmt.Sprintf("%s: %d", category, count))
+		}
+		builder.WriteString(strings.Join(categories, ", "))
+		builder.WriteString(")")
+	}
+
+	return builder.String()
+}
+
 // formatSingleError formats a single validation error
 func formatSingleError(err ValidationError) string {
 	if err.Field != "" {
 		return fmt.Sprintf("Field '%s': %s", err.Field, err.Message)
 	}
 	return err.Message
+}
+
+// categorizeErrorSeverity determines if an error should be treated as an error or warning
+func categorizeErrorSeverity(errorType, field string) string {
+	field = strings.ToLower(field)
+	errorType = strings.ToLower(errorType)
+
+	// Warnings: optional fields or non-critical issues
+	switch {
+	case strings.Contains(field, "description"):
+		return "warning"
+	case strings.Contains(field, "optional"):
+		return "warning"
+	case errorType == "additional_property_not_allowed" && strings.Contains(field, "metadata"):
+		return "warning"
+	default:
+		return "error"
+	}
+}
+
+// getErrorCategory categorizes errors for summary reporting
+func getErrorCategory(errorType, field string) string {
+	field = strings.ToLower(field)
+
+	switch {
+	case strings.Contains(field, "network") || strings.Contains(field, "ip") || strings.Contains(field, "subnet"):
+		return "network"
+	case strings.Contains(field, "storage") || strings.Contains(field, "volume"):
+		return "storage"
+	case strings.Contains(field, "node") || strings.Contains(field, "cluster_nodes"):
+		return "nodes"
+	case strings.Contains(field, "component"):
+		return "components"
+	case strings.Contains(field, "ssh") || strings.Contains(field, "auth"):
+		return "auth"
+	case strings.Contains(field, "ha") || strings.Contains(field, "high_availability"):
+		return "ha"
+	default:
+		return "general"
+	}
+}
+
+// countConfigFields estimates the number of fields being validated
+func countConfigFields(config *ClusterConfig) int {
+	// Basic estimation - could be made more sophisticated
+	count := 10 // base fields (name, description, etc.)
+
+	// Count nodes
+	count += len(config.Nodes.ClusterNodes) * 3 // ip, role, resources
+
+	// Count storage providers
+	if config.Storage.LocalPath.Enabled {
+		count += 2
+	}
+	if config.Storage.Longhorn.Enabled {
+		count += 5
+	}
+	if config.Storage.NFS.Enabled {
+		count += 4
+	}
+
+	// Count components
+	if config.Components.ArgoCD.Enabled {
+		count += 2
+	}
+	if config.Components.Monitoring.Enabled {
+		count += 3
+	}
+	if config.Components.Gitea.Enabled {
+		count += 2
+	}
+	if config.Components.MinIO.Enabled {
+		count += 4
+	}
+
+	return count
 }
 
 // generateSuggestion provides helpful suggestions for common validation errors
@@ -256,4 +438,105 @@ func QuickValidate(config *ClusterConfig) bool {
 		return false
 	}
 	return result.Valid
+}
+
+// ValidateSchemaHealth performs comprehensive schema health checks
+func ValidateSchemaHealth() (*ValidationResult, error) {
+	validator := GetValidator()
+
+	// Create a validation result for schema health checks
+	result := &ValidationResult{
+		Valid:    true,
+		Errors:   make([]ValidationError, 0),
+		Warnings: make([]ValidationError, 0),
+		Summary: ValidationSummary{
+			Categories: make(map[string]int),
+		},
+	}
+
+	// Check 1: Schema file existence and readability
+	if err := validator.ValidateSchemaFile(); err != nil {
+		result.Valid = false
+		result.Errors = append(result.Errors, ValidationError{
+			Field:         "schema_file",
+			Message:       err.Error(),
+			ErrorType:     "file_error",
+			SeverityLevel: "error",
+			Suggestion:    "Ensure the cluster-schema.json file exists and is readable in the schema/ directory",
+		})
+		result.Summary.Categories["schema_file"]++
+	}
+
+	// Check 2: Schema compilation
+	if err := validator.LoadSchema(); err != nil {
+		result.Valid = false
+		result.Errors = append(result.Errors, ValidationError{
+			Field:         "schema_compilation",
+			Message:       err.Error(),
+			ErrorType:     "schema_error",
+			SeverityLevel: "error",
+			Suggestion:    "Check JSON syntax in schema/cluster-schema.json for missing commas, brackets, or quotes",
+		})
+		result.Summary.Categories["schema_compilation"]++
+	}
+
+	// Check 3: Template validation (only if schema loads successfully)
+	if result.Valid {
+		templates, err := LoadAvailableTemplates()
+		if err != nil {
+			result.Warnings = append(result.Warnings, ValidationError{
+				Field:         "templates",
+				Message:       fmt.Sprintf("Failed to load templates: %v", err),
+				ErrorType:     "template_loading",
+				SeverityLevel: "warning",
+				Suggestion:    "Ensure templates directory exists and contains valid cluster-*.yaml files",
+			})
+			result.Summary.Categories["templates"]++
+		} else {
+			// Validate each template against the schema
+			for _, templateInfo := range templates {
+				config, err := LoadClusterTemplate(templateInfo.ID)
+				if err != nil {
+					result.Warnings = append(result.Warnings, ValidationError{
+						Field:         fmt.Sprintf("template_%s", templateInfo.ID),
+						Message:       fmt.Sprintf("Template %s failed to load: %v", templateInfo.Name, err),
+						ErrorType:     "template_parsing",
+						SeverityLevel: "warning",
+						Suggestion:    fmt.Sprintf("Check YAML syntax in %s", templateInfo.FilePath),
+					})
+					result.Summary.Categories["templates"]++
+					continue
+				}
+
+				// Validate template against schema
+				if templateResult, err := validator.ValidateClusterConfig(config); err != nil {
+					result.Warnings = append(result.Warnings, ValidationError{
+						Field:         fmt.Sprintf("template_%s_validation", templateInfo.ID),
+						Message:       fmt.Sprintf("Template %s validation error: %v", templateInfo.Name, err),
+						ErrorType:     "template_validation",
+						SeverityLevel: "warning",
+						Suggestion:    "Fix template to match the current schema requirements",
+					})
+					result.Summary.Categories["templates"]++
+				} else if !templateResult.Valid {
+					// Template has validation errors
+					result.Warnings = append(result.Warnings, ValidationError{
+						Field:         fmt.Sprintf("template_%s_schema", templateInfo.ID),
+						Message:       fmt.Sprintf("Template %s does not match schema (%d errors)", templateInfo.Name, len(templateResult.Errors)),
+						ErrorType:     "template_schema",
+						SeverityLevel: "warning",
+						Suggestion:    "Update template to match current schema or fix validation errors",
+					})
+					result.Summary.Categories["templates"]++
+				}
+			}
+		}
+	}
+
+	// Update summary counts
+	result.Summary.TotalErrors = len(result.Errors)
+	result.Summary.TotalWarnings = len(result.Warnings)
+	result.Summary.FieldsChecked = 3 // schema file, compilation, templates
+
+	return result, nil
 }

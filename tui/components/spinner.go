@@ -96,7 +96,7 @@ func (s *Spinner) View() string {
 	if !s.active {
 		return ""
 	}
-	
+
 	if s.frame < len(s.frames) {
 		return s.style.Render(s.frames[s.frame])
 	}

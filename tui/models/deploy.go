@@ -13,15 +13,15 @@ type DeployModel struct {
 	Width   int
 	Height  int
 	session *utils.Session
-	
+
 	// Deployment state
-	phases        []DeployPhase
-	currentPhase  int
-	logs          []string
-	progress      int
-	deploying     bool
-	completed     bool
-	error         error
+	phases       []DeployPhase
+	currentPhase int
+	logs         []string
+	progress     int
+	deploying    bool
+	completed    bool
+	error        error
 }
 
 type DeployPhase struct {
@@ -39,8 +39,8 @@ type DeployInitMsg struct {
 // NewDeployModel creates a new deployment model
 func NewDeployModel() DeployModel {
 	return DeployModel{
-		Width:   80,
-		Height:  24,
+		Width:  80,
+		Height: 24,
 		phases: []DeployPhase{
 			{
 				Name:        "Infrastructure",
@@ -112,7 +112,7 @@ func (m DeployModel) Update(msg tea.Msg) (DeployModel, tea.Cmd) {
 		// Auto-start deployment
 		m.deploying = true
 		return m, m.startDeployment()
-		
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "enter":
@@ -133,21 +133,21 @@ func (m DeployModel) Update(msg tea.Msg) (DeployModel, tea.Cmd) {
 			}
 		}
 	}
-	
+
 	return m, nil
 }
 
 func (m DeployModel) View() string {
 	var content strings.Builder
-	
+
 	// Title
 	title := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#00D4AA")).
 		Bold(true).
 		Render("Cluster Deployment")
-	
+
 	content.WriteString(title + "\n\n")
-	
+
 	if !m.deploying {
 		// Pre-deployment screen
 		content.WriteString("Ready to deploy your cluster!\n\n")
@@ -160,28 +160,28 @@ func (m DeployModel) View() string {
 	} else {
 		// Deployment progress
 		content.WriteString("Deploying your cluster...\n\n")
-		
+
 		// Phase progress
 		for i, phase := range m.phases {
 			status := m.renderPhaseStatus(phase)
 			line := fmt.Sprintf("%s %s", status, phase.Name)
-			
+
 			if i == m.currentPhase {
 				line = lipgloss.NewStyle().Bold(true).Render(line)
 			}
-			
+
 			content.WriteString(line + "\n")
-			
+
 			if phase.Status == "running" && phase.Progress > 0 {
 				progressBar := m.renderPhaseProgress(phase)
 				content.WriteString("  " + progressBar + "\n")
 			}
 		}
-		
+
 		// Overall progress
 		overallProgress := m.renderOverallProgress()
 		content.WriteString("\n" + overallProgress + "\n")
-		
+
 		// Recent logs
 		content.WriteString("\nRecent activity:\n")
 		logHeight := 5
@@ -189,11 +189,11 @@ func (m DeployModel) View() string {
 		if len(m.logs) > logHeight {
 			startIdx = len(m.logs) - logHeight
 		}
-		
+
 		for i := startIdx; i < len(m.logs); i++ {
 			content.WriteString(fmt.Sprintf("  %s\n", m.logs[i]))
 		}
-		
+
 		if m.completed {
 			content.WriteString("\n✓ Deployment completed successfully!")
 			content.WriteString("\nPress Enter to access your cluster")
@@ -201,14 +201,14 @@ func (m DeployModel) View() string {
 			content.WriteString(fmt.Sprintf("\n✗ Deployment failed: %v", m.error))
 		}
 	}
-	
+
 	// Help
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#626262")).
 		Render("Enter Continue • q Quit")
-	
+
 	content.WriteString("\n\n" + help)
-	
+
 	return content.String()
 }
 
@@ -230,18 +230,18 @@ func (m DeployModel) renderPhaseStatus(phase DeployPhase) string {
 func (m DeployModel) renderPhaseProgress(phase DeployPhase) string {
 	width := 30
 	filled := int(float64(width) * (float64(phase.Progress) / 100.0))
-	
+
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
-	
+
 	return fmt.Sprintf("[%s] %d%%", bar, phase.Progress)
 }
 
 func (m DeployModel) renderOverallProgress() string {
 	width := 50
 	filled := int(float64(width) * (float64(m.progress) / 100.0))
-	
+
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
-	
+
 	return fmt.Sprintf("Overall: [%s] %d%%", bar, m.progress)
 }
 
@@ -249,7 +249,7 @@ func (m DeployModel) startDeployment() tea.Cmd {
 	return func() tea.Msg {
 		// Simulate deployment progress
 		// In reality, this would call the actual deployment scripts
-		
+
 		// This is a placeholder - would need to implement actual deployment
 		return StateTransitionMsg{To: "complete"}
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -18,26 +19,26 @@ type USBModel struct {
 	Width   int
 	Height  int
 	session *utils.Session
-	
+
 	// USB creation state
-	devices        []USBDeviceInfo
-	currentStep    int
-	selected       int
-	creating       bool
-	progress       int
-	scanning       bool
-	currentDevice  int
-	
+	devices       []USBDeviceInfo
+	currentStep   int
+	selected      int
+	creating      bool
+	progress      int
+	scanning      bool
+	currentDevice int
+
 	// Animation state
 	animationFrame int
 	spinner        *components.Spinner
-	
+
 	// Error state
-	scanError      error
-	createError    string
-	
+	scanError   error
+	createError string
+
 	// Node configuration
-	nodeConfig     []NodeConfig
+	nodeConfig []NodeConfig
 }
 
 type USBDeviceInfo struct {
@@ -85,9 +86,32 @@ type USBCreateErrorMsg struct {
 
 type USBCreationCompleteMsg struct{}
 
-// lsblk JSON parsing structures
+// lsblk JSON parsing structures (for Linux)
 type LsblkOutput struct {
 	BlockDevices []BlockDevice `json:"blockdevices"`
+}
+
+// diskutil JSON parsing structures (for macOS)
+type DiskUtilOutput struct {
+	AllDisksAndPartitions []DiskInfo `json:"AllDisksAndPartitions"`
+}
+
+type DiskInfo struct {
+	DeviceIdentifier string `json:"DeviceIdentifier"`
+	Size             int64  `json:"Size"`
+	Content          string `json:"Content"`
+	OSInternal       bool   `json:"OSInternal"`
+	Partitions       []PartitionInfo `json:"Partitions"`
+	VolumeName       string `json:"VolumeName"`
+	MountPoint       string `json:"MountPoint"`
+}
+
+type PartitionInfo struct {
+	DeviceIdentifier string `json:"DeviceIdentifier"`
+	Size             int64  `json:"Size"`
+	Content          string `json:"Content"`
+	VolumeName       string `json:"VolumeName"`
+	MountPoint       string `json:"MountPoint"`
 }
 
 type BlockDevice struct {
@@ -110,10 +134,10 @@ func NewUSBModel() USBModel {
 		{Hostname: "k3s-worker-03", IP: "192.168.50.13", Role: "worker"},
 		{Hostname: "k8s-storage", IP: "192.168.50.20", Role: "storage"},
 	}
-	
+
 	spinner := components.NewSpinner()
 	spinner.Start()
-	
+
 	return USBModel{
 		Width:          80,
 		Height:         24,
@@ -143,12 +167,12 @@ func (m USBModel) Init() tea.Cmd {
 
 func (m USBModel) Update(msg tea.Msg) (USBModel, tea.Cmd) {
 	var cmd tea.Cmd
-	
+
 	// Update spinner
 	if m.spinner != nil {
 		cmd = m.spinner.Update(msg)
 	}
-	
+
 	switch msg := msg.(type) {
 	case components.SpinnerMsg:
 		// Handle spinner animation
@@ -156,7 +180,7 @@ func (m USBModel) Update(msg tea.Msg) (USBModel, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
-		
+
 	case USBAnimationMsg:
 		// Handle deprecated animation message for backward compatibility
 		m.animationFrame = (m.animationFrame + 1) % 10
@@ -165,7 +189,7 @@ func (m USBModel) Update(msg tea.Msg) (USBModel, tea.Cmd) {
 			return m, m.startAnimation()
 		}
 		return m, nil
-		
+
 	case USBInitMsg:
 		m.session = msg.Session
 		// Load node configuration from session if available
@@ -173,7 +197,7 @@ func (m USBModel) Update(msg tea.Msg) (USBModel, tea.Cmd) {
 			m.nodeConfig = m.extractNodeConfig(config)
 		}
 		return m, nil
-		
+
 	case USBScanCompleteMsg:
 		m.scanning = false
 		if msg.Err != nil {
@@ -190,7 +214,7 @@ func (m USBModel) Update(msg tea.Msg) (USBModel, tea.Cmd) {
 		// Assign nodes to devices
 		m.assignNodesToDevices()
 		return m, nil
-		
+
 	case USBProgressMsg:
 		m.currentDevice = msg.Device
 		m.progress = msg.Progress
@@ -201,18 +225,18 @@ func (m USBModel) Update(msg tea.Msg) (USBModel, tea.Cmd) {
 			}
 		}
 		return m, nil
-		
+
 	case USBScanTimeoutMsg:
 		m.scanning = false
 		m.devices = []USBDeviceInfo{}
 		return m, nil
-		
+
 	case USBSkipMsg:
 		// Skip USB creation and proceed to deployment
 		return m, func() tea.Msg {
 			return StateTransitionMsg{To: "deploy"}
 		}
-		
+
 	case USBCreateErrorMsg:
 		// Handle USB creation error
 		m.creating = false
@@ -222,7 +246,7 @@ func (m USBModel) Update(msg tea.Msg) (USBModel, tea.Cmd) {
 			m.devices[msg.Device].Status = "error"
 		}
 		return m, nil
-		
+
 	case USBCreationCompleteMsg:
 		// USB creation completed successfully
 		m.creating = false
@@ -234,7 +258,7 @@ func (m USBModel) Update(msg tea.Msg) (USBModel, tea.Cmd) {
 			}
 		}
 		return m, nil
-		
+
 	case tea.KeyMsg:
 		if m.scanning {
 			// Only allow quit/escape during scanning
@@ -250,7 +274,7 @@ func (m USBModel) Update(msg tea.Msg) (USBModel, tea.Cmd) {
 			}
 			return m, nil
 		}
-		
+
 		switch msg.String() {
 		case "enter":
 			if !m.creating && len(m.devices) > 0 {
@@ -309,26 +333,26 @@ func (m USBModel) Update(msg tea.Msg) (USBModel, tea.Cmd) {
 			}
 		}
 	}
-	
+
 	return m, nil
 }
 
 func (m USBModel) View() string {
 	var content strings.Builder
-	
+
 	// Title
 	title := lipgloss.NewStyle().
 		Foreground(colors.ZtcOrange).
 		Bold(true).
 		Render("USB Drive Creation")
-	
+
 	content.WriteString(title + "\n\n")
-	
+
 	// Handle different states
 	if m.scanning {
 		// Scanning state
 		content.WriteString("Scanning for USB devices...\n\n")
-		
+
 		// Use unified spinner or fallback to animation frame
 		var spinnerChar string
 		if m.spinner != nil {
@@ -338,14 +362,14 @@ func (m USBModel) View() string {
 			spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 			spinnerChar = spinner[m.animationFrame%len(spinner)]
 		}
-		
+
 		scanText := lipgloss.NewStyle().
 			Foreground(colors.ZtcOrange).
 			Render(spinnerChar + " Detecting USB devices...")
-		
+
 		content.WriteString(scanText + "\n\n")
 		content.WriteString("This may take a few seconds...\n")
-		
+
 	} else if !m.creating {
 		// Device selection state
 		instructions := `Create bootable USB drives for your cluster nodes.
@@ -353,7 +377,7 @@ Each node will need its own USB drive for automated installation.
 
 Detected USB devices:`
 		content.WriteString(instructions + "\n\n")
-		
+
 		if m.scanError != nil {
 			// Show scan error
 			errorText := lipgloss.NewStyle().
@@ -364,7 +388,7 @@ Detected USB devices:`
 			content.WriteString("• Press 'r' to try scanning again\n")
 			content.WriteString("• Press 's' to skip USB creation and proceed with deployment\n")
 			content.WriteString("• Press 'Esc' to go back to configuration\n\n")
-			
+
 			skipText := lipgloss.NewStyle().
 				Foreground(colors.ZtcOrange).
 				Render("Note: Skipping USB creation means you'll need to manually provision nodes")
@@ -378,7 +402,7 @@ Detected USB devices:`
 			content.WriteString("• Insert USB drives and press 'r' to rescan\n")
 			content.WriteString("• Press 's' to skip USB creation and proceed with deployment\n")
 			content.WriteString("• Press 'Esc' to go back to configuration\n\n")
-			
+
 			skipText := lipgloss.NewStyle().
 				Foreground(colors.ZtcOrange).
 				Render("Note: Skipping USB creation means you'll need to manually provision nodes")
@@ -388,7 +412,7 @@ Detected USB devices:`
 			for i, device := range m.devices {
 				style := lipgloss.NewStyle().
 					Padding(0, 1)
-				
+
 				if i == m.selected {
 					style = style.
 						Background(colors.ZtcOrange).
@@ -397,39 +421,39 @@ Detected USB devices:`
 					style = style.
 						Foreground(colors.ZtcWhite)
 				}
-				
-				deviceInfo := fmt.Sprintf("%s (%s) → %s (%s)", 
+
+				deviceInfo := fmt.Sprintf("%s (%s) → %s (%s)",
 					device.Device, device.Size, device.Hostname, device.IP)
-				
+
 				content.WriteString(style.Render(deviceInfo) + "\n")
 			}
-			
+
 			content.WriteString("\nPress Enter to create USB drives")
 		}
-		
+
 	} else {
 		// Creation progress state
 		content.WriteString("Creating USB drives...\n\n")
-		
+
 		for _, device := range m.devices {
 			status := m.renderDeviceStatus(device)
-			content.WriteString(fmt.Sprintf("%s %s → %s\n", 
+			content.WriteString(fmt.Sprintf("%s %s → %s\n",
 				status, device.Device, device.Hostname))
 		}
-		
+
 		// Progress bar
 		progress := m.renderProgressBar()
 		content.WriteString("\n" + progress + "\n")
-		
+
 		if m.progress >= 100 {
 			successText := lipgloss.NewStyle().
 				Foreground(colors.ZtcOrange).
 				Render("✓ All USB drives created successfully!")
-			
+
 			content.WriteString("\n" + successText)
 			content.WriteString("\nPress Enter to continue to deployment")
 		}
-		
+
 		// Show creation error if present
 		if m.createError != "" {
 			// Show creation error
@@ -438,19 +462,19 @@ Detected USB devices:`
 				Bold(true).
 				Render("✗ USB Creation Error")
 			content.WriteString("\n\n" + errorText + "\n\n")
-			
+
 			errorDetails := lipgloss.NewStyle().
 				Foreground(colors.ZtcDarkOrange).
 				Render(m.createError)
 			content.WriteString(errorDetails + "\n\n")
-			
+
 			content.WriteString("Options:\n")
 			content.WriteString("• Press 'r' to try again\n")
 			content.WriteString("• Press 's' to skip USB creation and proceed with deployment\n")
 			content.WriteString("• Press 'Esc' to go back to configuration\n")
 		}
 	}
-	
+
 	// Help text
 	helpText := ""
 	if m.scanning {
@@ -466,13 +490,13 @@ Detected USB devices:`
 	} else {
 		helpText = "Creating USB drives... • q Quit"
 	}
-	
+
 	help := lipgloss.NewStyle().
 		Foreground(colors.ZtcLightGray).
 		Render(helpText)
-	
+
 	content.WriteString("\n\n" + help)
-	
+
 	return content.String()
 }
 
@@ -494,16 +518,16 @@ func (m USBModel) renderDeviceStatus(device USBDeviceInfo) string {
 func (m USBModel) renderProgressBar() string {
 	width := 50
 	filled := int(float64(width) * (float64(m.progress) / 100.0))
-	
+
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
-	
+
 	return fmt.Sprintf("[%s] %d%%", bar, m.progress)
 }
 
 // Helper methods
 func (m USBModel) extractNodeConfig(config *utils.ClusterConfig) []NodeConfig {
 	var nodes []NodeConfig
-	
+
 	// Extract cluster nodes
 	for hostname, node := range config.Nodes.ClusterNodes {
 		nodes = append(nodes, NodeConfig{
@@ -512,16 +536,7 @@ func (m USBModel) extractNodeConfig(config *utils.ClusterConfig) []NodeConfig {
 			Role:     node.Role,
 		})
 	}
-	
-	// Extract storage nodes
-	for hostname, node := range config.Nodes.StorageNode {
-		nodes = append(nodes, NodeConfig{
-			Hostname: hostname,
-			IP:       node.IP,
-			Role:     node.Role,
-		})
-	}
-	
+
 	return nodes
 }
 
@@ -543,26 +558,38 @@ func (m USBModel) scanUSBDevices() tea.Cmd {
 			// Return error to be displayed to user
 			return USBScanCompleteMsg{Devices: []USBDeviceInfo{}, Err: err}
 		}
-		
+
 		return USBScanCompleteMsg{Devices: devices, Err: nil}
 	}
 }
 
-// detectUSBDevices uses lsblk to detect actual USB devices
+// detectUSBDevices dispatches to the correct OS-specific function.
 func detectUSBDevices() ([]USBDeviceInfo, error) {
+	switch runtime.GOOS {
+	case "linux":
+		return detectUSBDevicesLinux()
+	case "darwin":
+		return detectUSBDevicesDarwin()
+	default:
+		return nil, fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	}
+}
+
+// detectUSBDevicesLinux uses lsblk to detect actual USB devices on Linux.
+func detectUSBDevicesLinux() ([]USBDeviceInfo, error) {
 	// Execute lsblk command to get device information
 	cmd := exec.Command("lsblk", "-o", "NAME,SIZE,LABEL,MOUNTPOINT,TYPE,RM", "-J")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute lsblk: %w", err)
 	}
-	
+
 	// Parse JSON output
 	var lsblkOutput LsblkOutput
 	if err := json.Unmarshal(output, &lsblkOutput); err != nil {
 		return nil, fmt.Errorf("failed to parse lsblk output: %w", err)
 	}
-	
+
 	// Filter for removable disk devices (USB drives)
 	var devices []USBDeviceInfo
 	for _, device := range lsblkOutput.BlockDevices {
@@ -573,13 +600,44 @@ func detectUSBDevices() ([]USBDeviceInfo, error) {
 				Size:       device.Size,
 				Label:      getStringOrEmpty(device.Label),
 				Mountpoint: getStringOrEmpty(device.Mountpoint),
-				Safe:       isSafeDevice(device),
+				Safe:       isSafeDeviceLinux(device),
 				Status:     "pending",
 			}
 			devices = append(devices, usbDevice)
 		}
 	}
-	
+
+	return devices, nil
+}
+
+// detectUSBDevicesDarwin uses diskutil to detect actual USB devices on macOS.
+func detectUSBDevicesDarwin() ([]USBDeviceInfo, error) {
+	cmd := exec.Command("diskutil", "list", "-json")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute diskutil: %w", err)
+	}
+
+	var diskutilOutput DiskUtilOutput
+	if err := json.Unmarshal(output, &diskutilOutput); err != nil {
+		return nil, fmt.Errorf("failed to parse diskutil output: %w", err)
+	}
+
+	var devices []USBDeviceInfo
+	for _, disk := range diskutilOutput.AllDisksAndPartitions {
+		// Filter for physical, external disks
+		if !disk.OSInternal {
+			devices = append(devices, USBDeviceInfo{
+				Device:     "/dev/" + disk.DeviceIdentifier,
+				Size:       fmt.Sprintf("%dG", disk.Size/1000/1000/1000),
+				Label:      disk.VolumeName,
+				Mountpoint: disk.MountPoint,
+				Safe:       true, // Assume external disks are safe for now
+				Status:     "pending",
+			})
+		}
+	}
+
 	return devices, nil
 }
 
@@ -591,10 +649,10 @@ func getStringOrEmpty(ptr *string) string {
 	return *ptr
 }
 
-// isSafeDevice checks if a device is safe to use (not a system drive)
-func isSafeDevice(device BlockDevice) bool {
+// isSafeDeviceLinux checks if a device is safe to use (not a system drive) on Linux.
+func isSafeDeviceLinux(device BlockDevice) bool {
 	// Basic safety checks - avoid devices that are likely system drives
-	
+
 	// Check if device is mounted to critical system paths
 	if device.Mountpoint != nil {
 		mountpoint := *device.Mountpoint
@@ -605,14 +663,14 @@ func isSafeDevice(device BlockDevice) bool {
 			}
 		}
 	}
-	
+
 	// Check children for system mountpoints
 	for _, child := range device.Children {
-		if !isSafeDevice(child) {
+		if !isSafeDeviceLinux(child) {
 			return false
 		}
 	}
-	
+
 	// If device is removable and doesn't have system mountpoints, it's likely safe
 	return device.RM
 }
@@ -637,13 +695,13 @@ func (m USBModel) createUSBDrives() tea.Cmd {
 						Message: fmt.Sprintf("Failed to create USB for %s: %v", device.Hostname, err),
 					}
 				}
-				
+
 				// Send progress update for successful creation
 				// In a real implementation, this would be sent periodically during creation
 				return USBProgressMsg{Device: deviceIndex, Progress: 100}
 			}
 		}
-		
+
 		// All devices processed successfully
 		return USBCreationCompleteMsg{}
 	}
@@ -655,25 +713,22 @@ func createUSBDrive(device USBDeviceInfo) error {
 	if !device.Safe {
 		return fmt.Errorf("device %s is not safe to use", device.Device)
 	}
-	
+
 	// Check if device is still available
 	if !isDeviceAvailable(device.Device) {
 		return fmt.Errorf("device %s is no longer available", device.Device)
 	}
-	
+
 	// Execute USB creation script (this would be the actual implementation)
 	// For now, simulate the creation process
-	cmd := exec.Command("make", "autoinstall-usb", 
-		fmt.Sprintf("DEVICE=%s", device.Device),
-		fmt.Sprintf("HOSTNAME=%s", device.Hostname),
-		fmt.Sprintf("IP_OCTET=%s", extractIPOctet(device.IP)))
-	
+	cmd := exec.Command("scripts/tui/create-usb.sh", device.Device, device.Hostname, extractIPOctet(device.IP))
+
 	// Capture both stdout and stderr for detailed error reporting
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("USB creation failed: %w\nOutput: %s", err, string(output))
 	}
-	
+
 	return nil
 }
 
@@ -683,7 +738,7 @@ func isDeviceAvailable(devicePath string) bool {
 	if err != nil {
 		return false
 	}
-	
+
 	for _, device := range devices {
 		if device.Device == devicePath {
 			return true

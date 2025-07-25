@@ -19,7 +19,7 @@ type InputField struct {
 	Cursor      int
 	MaxLength   int
 	Validate    func(string) error
-	
+
 	// Internal state
 	validationError string
 }
@@ -55,7 +55,7 @@ func (i *InputField) Update(msg tea.Msg) tea.Cmd {
 		if !i.Focused {
 			return nil
 		}
-		
+
 		switch msg.String() {
 		case "left":
 			if i.Cursor > 0 {
@@ -104,14 +104,14 @@ func (i *InputField) Update(msg tea.Msg) tea.Cmd {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
 // View renders the input field
 func (i *InputField) View() string {
 	var b strings.Builder
-	
+
 	// Label
 	if i.Label != "" {
 		labelStyle := lipgloss.NewStyle().
@@ -120,13 +120,13 @@ func (i *InputField) View() string {
 		b.WriteString(labelStyle.Render(i.Label))
 		b.WriteString("\n")
 	}
-	
+
 	// Input box
 	content := i.Value
 	if content == "" && !i.Focused {
 		content = i.Placeholder
 	}
-	
+
 	// Add cursor if focused
 	if i.Focused {
 		if i.Cursor <= len(content) {
@@ -136,18 +136,18 @@ func (i *InputField) View() string {
 			content = left + cursor + right
 		}
 	}
-	
+
 	// Ensure minimum width
 	if len(content) < i.Width-2 {
 		content += strings.Repeat(" ", i.Width-2-len(content))
 	}
-	
+
 	// Input box style
 	inputStyle := lipgloss.NewStyle().
 		Width(i.Width).
 		Padding(0, 1).
 		Border(lipgloss.RoundedBorder())
-	
+
 	if i.Focused {
 		inputStyle = inputStyle.
 			BorderForeground(colors.ZtcOrange).
@@ -157,9 +157,9 @@ func (i *InputField) View() string {
 			BorderForeground(colors.ZtcLightGray).
 			Foreground(colors.ZtcLightGray)
 	}
-	
+
 	b.WriteString(inputStyle.Render(content))
-	
+
 	// Show validation error if present
 	if i.validationError != "" {
 		b.WriteString("\n")
@@ -168,7 +168,7 @@ func (i *InputField) View() string {
 			Bold(true)
 		b.WriteString(errorStyle.Render("⚠ " + i.validationError))
 	}
-	
+
 	return b.String()
 }
 
@@ -188,12 +188,12 @@ func (i *InputField) ValidateInput() bool {
 	if i.Validate == nil {
 		return true
 	}
-	
+
 	if err := i.Validate(i.Value); err != nil {
 		i.validationError = err.Error()
 		return false
 	}
-	
+
 	i.validationError = ""
 	return true
 }
@@ -243,7 +243,7 @@ func (s *SelectField) Update(msg tea.Msg) tea.Cmd {
 		if !s.Focused {
 			return nil
 		}
-		
+
 		switch msg.String() {
 		case "enter", " ":
 			s.Open = !s.Open
@@ -261,14 +261,14 @@ func (s *SelectField) Update(msg tea.Msg) tea.Cmd {
 			s.Open = false
 		}
 	}
-	
+
 	return nil
 }
 
 // View renders the select field
 func (s *SelectField) View() string {
 	var b strings.Builder
-	
+
 	// Label
 	if s.Label != "" {
 		labelStyle := lipgloss.NewStyle().
@@ -277,28 +277,28 @@ func (s *SelectField) View() string {
 		b.WriteString(labelStyle.Render(s.Label))
 		b.WriteString("\n")
 	}
-	
+
 	// Current selection
 	currentValue := ""
 	if s.Selected < len(s.Options) {
 		currentValue = s.Options[s.Selected]
 	}
-	
+
 	// Dropdown indicator and selection info
 	indicator := "▼"
 	if s.Open {
 		indicator = "▲"
 	}
-	
+
 	selectionInfo := fmt.Sprintf(" (%d/%d)", s.Selected+1, len(s.Options))
 	content := currentValue + selectionInfo + strings.Repeat(" ", s.Width-len(currentValue)-len(selectionInfo)-3) + indicator
-	
+
 	// Select box style
 	selectStyle := lipgloss.NewStyle().
 		Width(s.Width).
 		Padding(0, 1).
 		Border(lipgloss.RoundedBorder())
-	
+
 	if s.Focused {
 		selectStyle = selectStyle.
 			BorderForeground(colors.ZtcOrange).
@@ -308,9 +308,9 @@ func (s *SelectField) View() string {
 			BorderForeground(colors.ZtcLightGray).
 			Foreground(colors.ZtcLightGray)
 	}
-	
+
 	b.WriteString(selectStyle.Render(content))
-	
+
 	// Options dropdown
 	if s.Open {
 		b.WriteString("\n")
@@ -318,7 +318,7 @@ func (s *SelectField) View() string {
 			optionStyle := lipgloss.NewStyle().
 				Width(s.Width).
 				Padding(0, 1)
-			
+
 			if i == s.Selected {
 				optionStyle = optionStyle.
 					Background(colors.ZtcOrange).
@@ -327,12 +327,12 @@ func (s *SelectField) View() string {
 				optionStyle = optionStyle.
 					Foreground(colors.ZtcLightGray)
 			}
-			
+
 			b.WriteString(optionStyle.Render(option))
 			b.WriteString("\n")
 		}
 	}
-	
+
 	return b.String()
 }
 
@@ -389,34 +389,34 @@ func (t *ToggleField) Update(msg tea.Msg) tea.Cmd {
 		if !t.Focused {
 			return nil
 		}
-		
+
 		switch msg.String() {
 		case "enter", " ":
 			t.Value = !t.Value
 		}
 	}
-	
+
 	return nil
 }
 
 // View renders the toggle field
 func (t *ToggleField) View() string {
 	var b strings.Builder
-	
+
 	// Toggle indicator
 	indicator := "☐"
 	if t.Value {
 		indicator = "☑"
 	}
-	
+
 	// Label and toggle
 	content := indicator + " " + t.Label
-	
+
 	// Toggle style
 	toggleStyle := lipgloss.NewStyle().
 		Width(t.Width).
 		Padding(0, 1)
-	
+
 	if t.Focused {
 		toggleStyle = toggleStyle.
 			Foreground(colors.ZtcOrange).
@@ -425,9 +425,9 @@ func (t *ToggleField) View() string {
 		toggleStyle = toggleStyle.
 			Foreground(colors.ZtcLightGray)
 	}
-	
+
 	b.WriteString(toggleStyle.Render(content))
-	
+
 	return b.String()
 }
 

@@ -12,23 +12,23 @@ import (
 
 var (
 	// ZTC Brand Colors
-	primaryColor   = lipgloss.Color("#FFA500") // Orange - primary brand
-	secondaryColor = lipgloss.Color("#EAEAEA") // Light gray - secondary text
-	accentColor    = lipgloss.Color("#FF6600") // Dark orange - accent
+	primaryColor    = lipgloss.Color("#FFA500") // Orange - primary brand
+	secondaryColor  = lipgloss.Color("#EAEAEA") // Light gray - secondary text
+	accentColor     = lipgloss.Color("#FF6600") // Dark orange - accent
 	backgroundColor = lipgloss.Color("#1A1A1A") // Dark gray - background
-	textColor      = lipgloss.Color("#FFFFFF") // White - main text
-	warningColor   = lipgloss.Color("#FFA500") // Orange for warnings
-	errorColor     = lipgloss.Color("#FF6600") // Dark orange for errors
-	
+	textColor       = lipgloss.Color("#FFFFFF") // White - main text
+	warningColor    = lipgloss.Color("#FFA500") // Orange for warnings
+	errorColor      = lipgloss.Color("#FF6600") // Dark orange for errors
+
 	// Styles
 	titleStyle = lipgloss.NewStyle().
-		Foreground(primaryColor).
-		Bold(true).
-		MarginLeft(2)
-	
+			Foreground(primaryColor).
+			Bold(true).
+			MarginLeft(2)
+
 	subtitleStyle = lipgloss.NewStyle().
-		Foreground(secondaryColor).
-		MarginLeft(2)
+			Foreground(secondaryColor).
+			MarginLeft(2)
 )
 
 type sessionState int
@@ -48,7 +48,7 @@ type model struct {
 	usb      models.USBModel
 	deploy   models.DeployModel
 	complete models.CompleteModel
-	
+
 	// Shared state
 	session *utils.Session
 	width   int
@@ -57,7 +57,7 @@ type model struct {
 
 func initialModel() model {
 	session := utils.NewSession()
-	
+
 	return model{
 		state:    welcomeView,
 		welcome:  models.NewWelcomeModel(),
@@ -83,7 +83,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		
+
 		// Update all models with new dimensions
 		m.welcome.Width = msg.Width
 		m.welcome.Height = msg.Height
@@ -95,23 +95,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.deploy.Height = msg.Height
 		m.complete.Width = msg.Width
 		m.complete.Height = msg.Height
-		
+
 		return m, nil
-		
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		}
-		
+
 	case models.StateTransitionMsg:
 		switch msg.To {
 		case "config":
 			m.state = configView
-			// Pass the selected mission to the config model
+			// Store the selected configuration mode in session
+			m.session.ConfigMode = msg.ConfigMode
+			// Pass the selected template ID to the config model
 			cfgInit := models.ConfigInitMsg{
-				Session: m.session,
-				Mission: msg.Mission,
+				Session:    m.session,
+				TemplateID: msg.TemplateID,
 			}
 			m.config, cmd = m.config.Update(cfgInit)
 			initCmd := m.config.Init()
@@ -139,7 +141,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	}
-	
+
 	// Update current view
 	switch m.state {
 	case welcomeView:
@@ -158,7 +160,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.complete, cmd = m.complete.Update(msg)
 		cmds = append(cmds, cmd)
 	}
-	
+
 	return m, tea.Batch(cmds...)
 }
 
@@ -175,7 +177,7 @@ func (m model) View() string {
 	case completeView:
 		return m.complete.View()
 	}
-	
+
 	return "Unknown state"
 }
 
@@ -186,14 +188,14 @@ func main() {
 		fmt.Println("Please use: ./ztc")
 		os.Exit(1)
 	}
-	
+
 	// Create the program
 	p := tea.NewProgram(
 		initialModel(),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)
-	
+
 	// Run the program
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error running TUI: %v\n", err)

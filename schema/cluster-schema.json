@@ -180,7 +180,7 @@
             "private_key_path": {
               "type": "string",
               "description": "Path to SSH private key file (used by Ansible for node access)",
-              "pattern": "^(~|\\/|\\.)[^.]*$",
+              "pattern": "^(~|\\/|\\.).*$",
               "examples": ["~/.ssh/id_ed25519", "~/.ssh/id_rsa"]
             },
             "username": {
@@ -340,7 +340,7 @@
                 "name": {
                   "type": "string",
                   "default": "nfs-csi"
-                },
+                }
               },
               "additionalProperties": false
             }

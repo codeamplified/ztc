@@ -4,50 +4,74 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
+// ConfigurationMode represents the configuration complexity level
+type ConfigurationMode int
+
+const (
+	ConfigModeSimple ConfigurationMode = iota
+	ConfigModeAdvanced
+)
+
+// String returns the string representation of the configuration mode
+func (m ConfigurationMode) String() string {
+	switch m {
+	case ConfigModeSimple:
+		return "Simple"
+	case ConfigModeAdvanced:
+		return "Advanced"
+	default:
+		return "Unknown"
+	}
+}
+
 // Session represents the persistent state of the TUI wizard
 type Session struct {
-	ID             string            `yaml:"id"`
-	StartedAt      time.Time         `yaml:"started_at"`
-	CurrentPhase   string            `yaml:"current_phase"`
-	CompletedSteps []string          `yaml:"completed_steps"`
-	ClusterConfig  string            `yaml:"cluster_config"`
-	USBDevices     []USBDevice       `yaml:"usb_devices"`
-	DeploymentLog  string            `yaml:"deployment_log"`
-	Progress       map[string]int    `yaml:"progress"`
-	Metadata       map[string]string `yaml:"metadata"`
+	ID               string            `yaml:"id"`
+	StartedAt        time.Time         `yaml:"started_at"`
+	CurrentPhase     string            `yaml:"current_phase"`
+	CompletedSteps   []string          `yaml:"completed_steps"`
+	ClusterConfig    string            `yaml:"cluster_config"`
+	ConfigMode       ConfigurationMode `yaml:"config_mode"`
+	USBDevices       []USBDevice       `yaml:"usb_devices"`
+	DeploymentLog    string            `yaml:"deployment_log"`
+	Progress         map[string]int    `yaml:"progress"`
+	Metadata         map[string]string `yaml:"metadata"`
 }
 
 // USBDevice represents a USB device used for node installation
 type USBDevice struct {
-	Device     string `yaml:"device"`
-	Hostname   string `yaml:"hostname"`
-	IP         string `yaml:"ip"`
-	Created    bool   `yaml:"created"`
-	Verified   bool   `yaml:"verified"`
-	CreatedAt  time.Time `yaml:"created_at"`
+	Device    string    `yaml:"device"`
+	Hostname  string    `yaml:"hostname"`
+	IP        string    `yaml:"ip"`
+	Created   bool      `yaml:"created"`
+	Verified  bool      `yaml:"verified"`
+	CreatedAt time.Time `yaml:"created_at"`
 }
 
 // ClusterConfig represents the cluster configuration
 type ClusterConfig struct {
-	Cluster    ClusterMetadata   `yaml:"cluster" json:"cluster"`
-	Network    NetworkConfig     `yaml:"network" json:"network"`
-	Nodes      NodesConfig       `yaml:"nodes" json:"nodes"`
-	Storage    StorageConfig     `yaml:"storage" json:"storage"`
-	Components ComponentsConfig  `yaml:"components" json:"components"`
-	Workloads  WorkloadsConfig   `yaml:"workloads" json:"workloads"`
+	Cluster    ClusterMetadata  `yaml:"cluster" json:"cluster"`
+	Network    NetworkConfig    `yaml:"network" json:"network"`
+	Nodes      NodesConfig      `yaml:"nodes" json:"nodes"`
+	Storage    StorageConfig    `yaml:"storage" json:"storage"`
+	Components ComponentsConfig `yaml:"components" json:"components"`
+	Workloads  WorkloadsConfig  `yaml:"workloads" json:"workloads"`
+	Deployment DeploymentConfig `yaml:"deployment,omitempty" json:"deployment,omitempty"`
+	Advanced   AdvancedConfig   `yaml:"advanced,omitempty" json:"advanced,omitempty"`
 }
 
 // ClusterMetadata represents the cluster metadata section
 type ClusterMetadata struct {
-	Name        string     `yaml:"name" json:"name"`
-	Description string     `yaml:"description" json:"description"`
-	Version     string     `yaml:"version" json:"version"`
-	HAConfig    *HAConfig  `yaml:"ha_config,omitempty" json:"ha_config,omitempty"`
+	Name        string    `yaml:"name" json:"name"`
+	Description string    `yaml:"description" json:"description"`
+	Version     string    `yaml:"version" json:"version"`
+	HAConfig    *HAConfig `yaml:"ha_config,omitempty" json:"ha_config,omitempty"`
 }
 
 // HAConfig represents high availability configuration
@@ -55,6 +79,13 @@ type HAConfig struct {
 	Enabled      bool          `yaml:"enabled" json:"enabled"`
 	VirtualIP    string        `yaml:"virtual_ip,omitempty" json:"virtual_ip,omitempty"`
 	LoadBalancer *LoadBalancer `yaml:"load_balancer,omitempty" json:"load_balancer,omitempty"`
+	EtcdConfig   *EtcdConfig   `yaml:"etcd_config,omitempty" json:"etcd_config,omitempty"`
+}
+
+// EtcdConfig represents embedded etcd configuration for HA
+type EtcdConfig struct {
+	SnapshotCount     int    `yaml:"snapshot_count,omitempty" json:"snapshot_count,omitempty"`
+	HeartbeatInterval string `yaml:"heartbeat_interval,omitempty" json:"heartbeat_interval,omitempty"`
 }
 
 // LoadBalancer represents load balancer configuration
@@ -64,8 +95,11 @@ type LoadBalancer struct {
 }
 
 type NetworkConfig struct {
-	Subnet string    `yaml:"subnet" json:"subnet"`
-	DNS    DNSConfig `yaml:"dns" json:"dns"`
+	Subnet      string    `yaml:"subnet" json:"subnet"`
+	Gateway     string    `yaml:"gateway" json:"gateway"`
+	PodCIDR     string    `yaml:"pod_cidr" json:"pod_cidr"`
+	ServiceCIDR string    `yaml:"service_cidr" json:"service_cidr"`
+	DNS         DNSConfig `yaml:"dns" json:"dns"`
 }
 
 type DNSConfig struct {
@@ -76,26 +110,20 @@ type DNSConfig struct {
 }
 
 type NodesConfig struct {
-	SSH          SSHConfig               `yaml:"ssh" json:"ssh"`
-	ClusterNodes map[string]ClusterNode  `yaml:"cluster_nodes" json:"cluster_nodes"`
-	StorageNode  map[string]StorageNode  `yaml:"storage_node,omitempty" json:"storage_node,omitempty"`
+	SSH          SSHConfig              `yaml:"ssh" json:"ssh"`
+	ClusterNodes map[string]ClusterNode `yaml:"cluster_nodes" json:"cluster_nodes"`
 }
 
 type SSHConfig struct {
-	KeyPath  string `yaml:"key_path" json:"key_path"`
-	Username string `yaml:"username" json:"username"`
+	PublicKeyPath  string `yaml:"public_key_path" json:"public_key_path"`
+	PrivateKeyPath string `yaml:"private_key_path" json:"private_key_path"`
+	Username       string `yaml:"username" json:"username"`
 }
 
 type ClusterNode struct {
-	IP        string            `yaml:"ip" json:"ip"`
-	Role      string            `yaml:"role" json:"role"`
-	Resources NodeResources     `yaml:"resources,omitempty" json:"resources,omitempty"`
-}
-
-type StorageNode struct {
-	IP        string            `yaml:"ip" json:"ip"`
-	Role      string            `yaml:"role" json:"role"`
-	Resources StorageResources  `yaml:"resources,omitempty" json:"resources,omitempty"`
+	IP        string        `yaml:"ip" json:"ip"`
+	Role      string        `yaml:"role" json:"role"`
+	Resources NodeResources `yaml:"resources,omitempty" json:"resources,omitempty"`
 }
 
 type NodeResources struct {
@@ -103,44 +131,45 @@ type NodeResources struct {
 	Memory string `yaml:"memory" json:"memory"`
 }
 
-type StorageResources struct {
-	CPU     string `yaml:"cpu" json:"cpu"`
-	Memory  string `yaml:"memory" json:"memory"`
-	Storage string `yaml:"storage" json:"storage"`
-}
-
 type StorageConfig struct {
-	Strategy     string                 `yaml:"strategy" json:"strategy"`
-	DefaultClass string                 `yaml:"default_class" json:"default_class"`
-	LocalPath    LocalPathConfig        `yaml:"local_path" json:"local_path"`
-	NFS          NFSConfig              `yaml:"nfs" json:"nfs"`
-	Longhorn     LonghornConfig         `yaml:"longhorn" json:"longhorn"`
+	DefaultStorageClass string          `yaml:"default_storage_class" json:"default_storage_class"`
+	LocalPath           LocalPathConfig `yaml:"local_path" json:"local_path"`
+	Longhorn            LonghornConfig  `yaml:"longhorn" json:"longhorn"`
+	NFS                 NFSConfig       `yaml:"nfs" json:"nfs"`
 }
 
 type LocalPathConfig struct {
-	Enabled   bool `yaml:"enabled" json:"enabled"`
-	IsDefault bool `yaml:"is_default" json:"is_default"`
-}
-
-type NFSConfig struct {
-	Enabled      bool               `yaml:"enabled" json:"enabled"`
-	Server       *NFSServerConfig   `yaml:"server,omitempty" json:"server,omitempty"`
-	StorageClass *NFSStorageClass   `yaml:"storage_class,omitempty" json:"storage_class,omitempty"`
-}
-
-type NFSServerConfig struct {
-	IP   string `yaml:"ip" json:"ip"`
-	Path string `yaml:"path" json:"path"`
-}
-
-type NFSStorageClass struct {
-	Name          string `yaml:"name" json:"name"`
-	IsDefault     bool   `yaml:"is_default" json:"is_default"`
-	ReclaimPolicy string `yaml:"reclaim_policy" json:"reclaim_policy"`
+	Enabled bool `yaml:"enabled" json:"enabled"`
 }
 
 type LonghornConfig struct {
-	Enabled bool `yaml:"enabled" json:"enabled"`
+	Enabled      bool                 `yaml:"enabled" json:"enabled"`
+	Namespace    string               `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+	ReplicaCount int                  `yaml:"replica_count,omitempty" json:"replica_count,omitempty"`
+	StorageClass LonghornStorageClass `yaml:"storage_class,omitempty" json:"storage_class,omitempty"`
+	Settings     LonghornSettings     `yaml:"settings,omitempty" json:"settings,omitempty"`
+}
+
+type LonghornStorageClass struct {
+	Name          string `yaml:"name" json:"name"`
+	ReclaimPolicy string `yaml:"reclaim_policy" json:"reclaim_policy"`
+}
+
+type LonghornSettings struct {
+	BackupTarget    string `yaml:"backup_target,omitempty" json:"backup_target,omitempty"`
+	DefaultDataPath string `yaml:"default_data_path,omitempty" json:"default_data_path,omitempty"`
+}
+
+type NFSConfig struct {
+	Enabled             bool            `yaml:"enabled" json:"enabled"`
+	Namespace           string          `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+	BackendStorageClass string          `yaml:"backend_storage_class,omitempty" json:"backend_storage_class,omitempty"`
+	StorageSize         string          `yaml:"storage_size,omitempty" json:"storage_size,omitempty"`
+	StorageClass        NFSStorageClass `yaml:"storage_class,omitempty" json:"storage_class,omitempty"`
+}
+
+type NFSStorageClass struct {
+	Name string `yaml:"name" json:"name"`
 }
 
 type ComponentsConfig struct {
@@ -148,6 +177,7 @@ type ComponentsConfig struct {
 	ArgoCD        ArgoCDConfig        `yaml:"argocd" json:"argocd"`
 	Monitoring    MonitoringConfig    `yaml:"monitoring" json:"monitoring"`
 	Gitea         GiteaConfig         `yaml:"gitea" json:"gitea"`
+	MinIO         MinIOConfig         `yaml:"minio" json:"minio"`
 	Homepage      HomepageConfig      `yaml:"homepage" json:"homepage"`
 }
 
@@ -161,22 +191,151 @@ type ArgoCDConfig struct {
 }
 
 type MonitoringConfig struct {
-	Enabled   bool   `yaml:"enabled" json:"enabled"`
-	Namespace string `yaml:"namespace" json:"namespace"`
+	Enabled    bool                 `yaml:"enabled" json:"enabled"`
+	Namespace  string               `yaml:"namespace" json:"namespace"`
+	Components MonitoringComponents `yaml:"components,omitempty" json:"components,omitempty"`
+	Resources  MonitoringResources  `yaml:"resources,omitempty" json:"resources,omitempty"`
+}
+
+type MonitoringComponents struct {
+	Prometheus   bool `yaml:"prometheus" json:"prometheus"`
+	Grafana      bool `yaml:"grafana" json:"grafana"`
+	AlertManager bool `yaml:"alertmanager" json:"alertmanager"`
+}
+
+type MonitoringResources struct {
+	Prometheus PrometheusResources `yaml:"prometheus,omitempty" json:"prometheus,omitempty"`
+	Grafana    GrafanaResources    `yaml:"grafana,omitempty" json:"grafana,omitempty"`
+}
+
+type PrometheusResources struct {
+	MemoryLimit string `yaml:"memory_limit" json:"memory_limit"`
+	StorageSize string `yaml:"storage_size" json:"storage_size"`
+}
+
+type GrafanaResources struct {
+	MemoryLimit string `yaml:"memory_limit" json:"memory_limit"`
 }
 
 type GiteaConfig struct {
-	Enabled   bool   `yaml:"enabled" json:"enabled"`
-	Namespace string `yaml:"namespace" json:"namespace"`
+	Enabled   bool           `yaml:"enabled" json:"enabled"`
+	Namespace string         `yaml:"namespace" json:"namespace"`
+	Features  GiteaFeatures  `yaml:"features,omitempty" json:"features,omitempty"`
+	Resources GiteaResources `yaml:"resources,omitempty" json:"resources,omitempty"`
+}
+
+type GiteaFeatures struct {
+	ContainerRegistry bool `yaml:"container_registry" json:"container_registry"`
+	ActionsRunner     bool `yaml:"actions_runner" json:"actions_runner"`
+}
+
+type GiteaResources struct {
+	MemoryLimit string `yaml:"memory_limit" json:"memory_limit"`
+	StorageSize string `yaml:"storage_size" json:"storage_size"`
+}
+
+type MinIOConfig struct {
+	Enabled      bool             `yaml:"enabled" json:"enabled"`
+	Namespace    string           `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+	StorageClass string           `yaml:"storage_class,omitempty" json:"storage_class,omitempty"`
+	Replicas     int              `yaml:"replicas,omitempty" json:"replicas,omitempty"`
+	StorageSize  string           `yaml:"storage_size,omitempty" json:"storage_size,omitempty"`
+	Console      MinIOConsole     `yaml:"console,omitempty" json:"console,omitempty"`
+	API          MinIOAPI         `yaml:"api,omitempty" json:"api,omitempty"`
+	Credentials  MinIOCredentials `yaml:"credentials,omitempty" json:"credentials,omitempty"`
+	Resources    MinIOResources   `yaml:"resources,omitempty" json:"resources,omitempty"`
+}
+
+type MinIOConsole struct {
+	Enabled  bool   `yaml:"enabled" json:"enabled"`
+	Hostname string `yaml:"hostname,omitempty" json:"hostname,omitempty"`
+}
+
+type MinIOAPI struct {
+	Hostname string `yaml:"hostname,omitempty" json:"hostname,omitempty"`
+}
+
+type MinIOCredentials struct {
+	AccessKey string `yaml:"access_key,omitempty" json:"access_key,omitempty"`
+	SecretKey string `yaml:"secret_key,omitempty" json:"secret_key,omitempty"`
+}
+
+type MinIOResources struct {
+	MemoryLimit string `yaml:"memory_limit" json:"memory_limit"`
+	CPULimit    string `yaml:"cpu_limit" json:"cpu_limit"`
 }
 
 type HomepageConfig struct {
-	Enabled   bool   `yaml:"enabled" json:"enabled"`
-	Namespace string `yaml:"namespace" json:"namespace"`
+	Enabled   bool             `yaml:"enabled" json:"enabled"`
+	Namespace string           `yaml:"namespace" json:"namespace"`
+	Features  HomepageFeatures `yaml:"features,omitempty" json:"features,omitempty"`
+}
+
+type HomepageFeatures struct {
+	ServiceDiscovery bool `yaml:"service_discovery" json:"service_discovery"`
+	ClusterMetrics   bool `yaml:"cluster_metrics" json:"cluster_metrics"`
 }
 
 type WorkloadsConfig struct {
-	AutoDeployBundles []string `yaml:"auto_deploy_bundles" json:"auto_deploy_bundles"`
+	AutoDeployBundles []string          `yaml:"auto_deploy_bundles" json:"auto_deploy_bundles"`
+	Templates         WorkloadTemplates `yaml:"templates,omitempty" json:"templates,omitempty"`
+}
+
+type WorkloadTemplates struct {
+	DefaultStorageClass string `yaml:"default_storage_class" json:"default_storage_class"`
+	DefaultMemoryLimit  string `yaml:"default_memory_limit" json:"default_memory_limit"`
+	DefaultCPULimit     string `yaml:"default_cpu_limit" json:"default_cpu_limit"`
+}
+
+type DeploymentConfig struct {
+	Phases  DeploymentPhases  `yaml:"phases,omitempty" json:"phases,omitempty"`
+	Options DeploymentOptions `yaml:"options,omitempty" json:"options,omitempty"`
+}
+
+type DeploymentPhases struct {
+	Infrastructure   bool `yaml:"infrastructure" json:"infrastructure"`
+	Secrets          bool `yaml:"secrets" json:"secrets"`
+	Networking       bool `yaml:"networking" json:"networking"`
+	Storage          bool `yaml:"storage" json:"storage"`
+	SystemComponents bool `yaml:"system_components" json:"system_components"`
+	GitOps           bool `yaml:"gitops" json:"gitops"`
+	Workloads        bool `yaml:"workloads" json:"workloads"`
+}
+
+type DeploymentOptions struct {
+	WaitForReady    bool `yaml:"wait_for_ready" json:"wait_for_ready"`
+	TimeoutMinutes  int  `yaml:"timeout_minutes" json:"timeout_minutes"`
+	RetryFailed     bool `yaml:"retry_failed" json:"retry_failed"`
+	BackupOnSuccess bool `yaml:"backup_on_success" json:"backup_on_success"`
+}
+
+type AdvancedConfig struct {
+	Ansible    AnsibleConfig    `yaml:"ansible,omitempty" json:"ansible,omitempty"`
+	Kubernetes KubernetesConfig `yaml:"kubernetes,omitempty" json:"kubernetes,omitempty"`
+	Security   SecurityConfig   `yaml:"security,omitempty" json:"security,omitempty"`
+	Backup     BackupConfig     `yaml:"backup,omitempty" json:"backup,omitempty"`
+}
+
+type AnsibleConfig struct {
+	InventoryPath     string `yaml:"inventory_path" json:"inventory_path"`
+	VaultPasswordFile string `yaml:"vault_password_file" json:"vault_password_file"`
+}
+
+type KubernetesConfig struct {
+	Version          string `yaml:"version" json:"version"`
+	ContainerRuntime string `yaml:"container_runtime" json:"container_runtime"`
+}
+
+type SecurityConfig struct {
+	AutoGeneratePasswords bool `yaml:"auto_generate_passwords" json:"auto_generate_passwords"`
+	PasswordLength        int  `yaml:"password_length" json:"password_length"`
+	EnableRBAC            bool `yaml:"enable_rbac" json:"enable_rbac"`
+}
+
+type BackupConfig struct {
+	AutoBackupSecrets bool   `yaml:"auto_backup_secrets" json:"auto_backup_secrets"`
+	BackupLocation    string `yaml:"backup_location" json:"backup_location"`
+	RetentionDays     int    `yaml:"retention_days" json:"retention_days"`
 }
 
 const sessionFile = ".ztc-session.yaml"
@@ -189,6 +348,7 @@ func NewSession() *Session {
 		CurrentPhase:   "welcome",
 		CompletedSteps: []string{},
 		ClusterConfig:  "cluster.yaml",
+		ConfigMode:     ConfigModeSimple, // Default to simple mode
 		USBDevices:     []USBDevice{},
 		DeploymentLog:  "",
 		Progress:       make(map[string]int),
@@ -363,32 +523,25 @@ func GetStatusFile() string {
 	return filepath.Join(GetWorkspaceDir(), ".ztc-status.json")
 }
 
-// Mission represents the user's chosen cluster type
-type Mission string
-
-const (
-	MissionPioneer     Mission = "pioneer"
-	MissionHomesteader Mission = "homesteader"
-)
+// Mission types removed - TUI is now template-agnostic
 
 // Template represents a cluster template with metadata
 type Template struct {
-	Name         string   `yaml:"name"`
-	Description  string   `yaml:"description"`
-	Mission      Mission  `yaml:"mission"`
-	NodeCount    string   `yaml:"node_count"`
-	HardwareReq  string   `yaml:"hardware_req"`
-	Bundles      []string `yaml:"bundles"`
-	Config       *ClusterConfig `yaml:"config"`
+	Name        string         `yaml:"name"`
+	Description string         `yaml:"description"`
+	NodeCount   string         `yaml:"node_count"`
+	HardwareReq string         `yaml:"hardware_req"`
+	Bundles     []string       `yaml:"bundles"`
+	Config      *ClusterConfig `yaml:"config"`
 }
 
-// LoadClusterTemplate loads a cluster template based on mission
-func LoadClusterTemplate(mission Mission) (*ClusterConfig, error) {
-	templatePath := filepath.Join(GetWorkspaceDir(), "templates", fmt.Sprintf("cluster-%s.yaml", string(mission)))
-	
+// LoadClusterTemplate loads a cluster template based on template ID
+func LoadClusterTemplate(templateID string) (*ClusterConfig, error) {
+	templatePath := filepath.Join(GetWorkspaceDir(), "templates", fmt.Sprintf("cluster-%s.yaml", templateID))
+
 	// Check if template file exists
 	if _, err := os.Stat(templatePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("template not found for mission %s: %s", mission, templatePath)
+		return nil, fmt.Errorf("template not found for ID %s: %s", templateID, templatePath)
 	}
 
 	// Read template file
@@ -406,59 +559,45 @@ func LoadClusterTemplate(mission Mission) (*ClusterConfig, error) {
 	return &config, nil
 }
 
+// LoadClusterTemplateByMission removed - use LoadClusterTemplate directly
+
 // ValidateTemplate is now implemented in validation.go using JSON schema validation
 
-// GetAvailableBundles returns available workload bundles for a mission
-func GetAvailableBundles(mission Mission) []Bundle {
-	switch mission {
-	case MissionPioneer:
-		return []Bundle{
-			{
-				ID:          "starter",
-				Name:        "Starter Bundle",
-				Description: "Essential homelab services: Homepage dashboard + Uptime Kuma monitoring",
-				Services:    []string{"homepage", "uptime-kuma"},
-				Resources:   "192Mi RAM, 2Gi storage",
-				Recommended: true,
-			},
-		}
-	case MissionHomesteader:
-		return []Bundle{
-			{
-				ID:          "starter",
-				Name:        "Starter Bundle",
-				Description: "Essential homelab services",
-				Services:    []string{"homepage", "uptime-kuma"},
-				Resources:   "192Mi RAM, 2Gi storage",
-				Recommended: true,
-			},
-			{
-				ID:          "monitoring",
-				Name:        "Monitoring Bundle", 
-				Description: "Complete monitoring solution",
-				Services:    []string{"uptime-kuma", "homepage"},
-				Resources:   "192Mi RAM, 3Gi storage",
-				Recommended: true,
-			},
-			{
-				ID:          "productivity",
-				Name:        "Productivity Bundle",
-				Description: "Development and automation toolkit",
-				Services:    []string{"code-server", "n8n"},
-				Resources:   "1Gi RAM, 15Gi storage",
-				Recommended: false,
-			},
-			{
-				ID:          "security",
-				Name:        "Security Bundle",
-				Description: "Professional password management",
-				Services:    []string{"vaultwarden"},
-				Resources:   "128Mi RAM, 5Gi storage",
-				Recommended: false,
-			},
-		}
-	default:
-		return []Bundle{}
+// GetAvailableBundles returns all available workload bundles (template-agnostic)
+func GetAvailableBundles() []Bundle {
+	return []Bundle{
+		{
+			ID:          "starter",
+			Name:        "Starter Bundle",
+			Description: "Essential homelab services: Homepage dashboard + Uptime Kuma monitoring",
+			Services:    []string{"homepage", "uptime-kuma"},
+			Resources:   "192Mi RAM, 2Gi storage",
+			Recommended: true,
+		},
+		{
+			ID:          "monitoring",
+			Name:        "Monitoring Bundle",
+			Description: "Complete monitoring solution",
+			Services:    []string{"uptime-kuma", "homepage"},
+			Resources:   "192Mi RAM, 3Gi storage",
+			Recommended: false,
+		},
+		{
+			ID:          "productivity",
+			Name:        "Productivity Bundle",
+			Description: "Development and automation toolkit",
+			Services:    []string{"code-server", "n8n"},
+			Resources:   "1Gi RAM, 15Gi storage",
+			Recommended: false,
+		},
+		{
+			ID:          "security",
+			Name:        "Security Bundle",
+			Description: "Professional password management",
+			Services:    []string{"vaultwarden"},
+			Resources:   "128Mi RAM, 5Gi storage",
+			Recommended: false,
+		},
 	}
 }
 
@@ -472,41 +611,10 @@ type Bundle struct {
 	Recommended bool     `yaml:"recommended" json:"recommended"`
 }
 
-// GetTemplateMetadata returns metadata about a template
-func GetTemplateMetadata(mission Mission) (*TemplateMetadata, error) {
-	switch mission {
-	case MissionPioneer:
-		return &TemplateMetadata{
-			Mission:      MissionPioneer,
-			Name:         "Pioneer Mission",
-			Description:  "Explore Kubernetes with minimal gear (1-4 nodes)",
-			NodeCount:    "1-4 nodes",
-			HardwareReq:  "4GB RAM per node, 32GB storage minimum",
-			Architecture: "Single master, converged services",
-			StorageTypes: []string{"local-path"},
-			UseCases:     []string{"Learning", "Experimentation", "Testing"},
-			TradeOffs:    []string{"Single point of failure", "Limited scalability"},
-		}, nil
-	case MissionHomesteader:
-		return &TemplateMetadata{
-			Mission:      MissionHomesteader,
-			Name:         "Homesteader Mission",
-			Description:  "Build a permanent, reliable digital home (5+ nodes)",
-			NodeCount:    "5+ nodes (3 masters, 2+ workers)",
-			HardwareReq:  "8GB RAM per master, 4GB per worker, 100GB storage minimum",
-			Architecture: "HA masters with VIP, dedicated storage",
-			StorageTypes: []string{"local-path", "longhorn", "minio"},
-			UseCases:     []string{"Production services", "High availability", "Data safety"},
-			TradeOffs:    []string{"Higher resource requirements", "Increased complexity"},
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown mission: %s", mission)
-	}
-}
+// GetTemplateMetadata removed - metadata is now generated from template data
 
-// TemplateMetadata provides information about a template
+// TemplateMetadata provides information about a template (generated from template data)
 type TemplateMetadata struct {
-	Mission      Mission  `yaml:"mission" json:"mission"`
 	Name         string   `yaml:"name" json:"name"`
 	Description  string   `yaml:"description" json:"description"`
 	NodeCount    string   `yaml:"node_count" json:"node_count"`
@@ -517,10 +625,105 @@ type TemplateMetadata struct {
 	TradeOffs    []string `yaml:"trade_offs" json:"trade_offs"`
 }
 
+// TemplateInfo represents a discovered template file with metadata
+type TemplateInfo struct {
+	Name        string `yaml:"name" json:"name"`
+	Description string `yaml:"description" json:"description"`
+	ID          string `yaml:"id" json:"id"`
+	FilePath    string `yaml:"file_path" json:"file_path"`
+	IsFeatured  bool   `yaml:"is_featured" json:"is_featured"`
+}
+
+// LoadAvailableTemplates discovers all cluster template files
+func LoadAvailableTemplates() ([]TemplateInfo, error) {
+	templatesDir := filepath.Join(GetWorkspaceDir(), "templates")
+
+	// Check if templates directory exists
+	if _, err := os.Stat(templatesDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("templates directory not found: %s", templatesDir)
+	}
+
+	// Read directory contents
+	entries, err := os.ReadDir(templatesDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read templates directory: %w", err)
+	}
+
+	var templates []TemplateInfo
+
+	// Scan for cluster-*.yaml files
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if !strings.HasPrefix(name, "cluster-") || !strings.HasSuffix(name, ".yaml") {
+			continue
+		}
+
+		filePath := filepath.Join(templatesDir, name)
+
+		// Extract template ID from filename
+		baseName := strings.TrimSuffix(name, ".yaml")
+		id := strings.TrimPrefix(baseName, "cluster-")
+
+		// Determine if this is a featured template
+		// For now, consider templates with good descriptions as featured
+		// In the future, this could come from template metadata
+		isFeatured := false
+
+		// Read the template file to extract metadata
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			// Log warning but continue with other templates
+			continue
+		}
+
+		// Try to parse as ClusterConfig to get name and description
+		var config ClusterConfig
+		templateName := strings.Title(strings.ReplaceAll(id, "-", " "))
+		templateDesc := fmt.Sprintf("Cluster template: %s", templateName)
+
+		if err := yaml.Unmarshal(data, &config); err == nil {
+			if config.Cluster.Name != "" {
+				templateName = config.Cluster.Name
+			}
+			if config.Cluster.Description != "" {
+				templateDesc = config.Cluster.Description
+			}
+
+			// Determine featured status based on template quality/completeness
+			// A featured template should have:
+			// - A clear name and description
+			// - At least one node configured
+			// - Storage configuration
+			// - Components configured
+			if config.Cluster.Name != "" &&
+				config.Cluster.Description != "" &&
+				len(config.Nodes.ClusterNodes) > 0 &&
+				config.Storage.DefaultStorageClass != "" &&
+				(config.Components.ArgoCD.Enabled || config.Components.Monitoring.Enabled) {
+				isFeatured = true
+			}
+		}
+
+		templates = append(templates, TemplateInfo{
+			Name:        templateName,
+			Description: templateDesc,
+			ID:          id,
+			FilePath:    filePath,
+			IsFeatured:  isFeatured,
+		})
+	}
+
+	return templates, nil
+}
+
 // GetNodeList extracts node information from cluster config for USB creation
 func GetNodeList(config *ClusterConfig) []NodeInfo {
 	var nodes []NodeInfo
-	
+
 	// Add cluster nodes
 	for hostname, node := range config.Nodes.ClusterNodes {
 		nodes = append(nodes, NodeInfo{
@@ -530,17 +733,7 @@ func GetNodeList(config *ClusterConfig) []NodeInfo {
 			Type:     "cluster",
 		})
 	}
-	
-	// Add storage nodes if present
-	for hostname, node := range config.Nodes.StorageNode {
-		nodes = append(nodes, NodeInfo{
-			Hostname: hostname,
-			IP:       node.IP,
-			Role:     node.Role,
-			Type:     "storage",
-		})
-	}
-	
+
 	return nodes
 }
 

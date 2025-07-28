@@ -9,36 +9,35 @@ import (
 	"ztc-tui/models/config_steps"
 	"ztc-tui/utils"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ConfigStepModel interface alias from config_steps package
+// Type aliases from config_steps package
 type ConfigStepModel = config_steps.ConfigStepModel
+type StepDefinition = config_steps.StepDefinition
 
 type ConfigModel struct {
-	Width   int
-	Height  int
-	session *utils.Session
+	Width    int
+	Height   int
+	session  *utils.Session
+	viewport viewport.Model
+	ready    bool
 
 	// Template-based configuration
 	templateID       string
 	template         *utils.ClusterConfig
 	templateMetadata *utils.TemplateMetadata
 
-	// Phase 3: Step orchestration
-	configSteps    []ConfigStepModel
+	// Step orchestration - single source of truth
+	allSteps       []config_steps.StepDefinition
+	visibleSteps   []*config_steps.StepDefinition
 	currentStepIdx int
 
-	// Configuration state (legacy - needed for step indicators)
-	currentStep   int
-	steps         []string
+	// UI components
 	modeIndicator *components.ModeIndicator
 	stepIndicator *components.StepIndicator
-
-	// UI state (legacy - will be removed)
-	focusedField int
-	fields       []string
 
 	// Error state
 	currentError   error
@@ -53,9 +52,8 @@ type ConfigInitMsg struct {
 // NewConfigModel creates a new configuration model
 func NewConfigModel() ConfigModel {
 	return ConfigModel{
-		Width:  80,
-		Height: 24,
-		configSteps: []ConfigStepModel{},
+		Width:          0, // Will be set by WindowSizeMsg
+		Height:         0, // Will be set by WindowSizeMsg
 		currentStepIdx: 0,
 	}
 }
@@ -69,33 +67,54 @@ func (m ConfigModel) Update(msg tea.Msg) (ConfigModel, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.Width = msg.Width
+		m.Height = msg.Height
+		
+		// Update viewport dimensions
+		if !m.ready {
+			// Initialize viewport if not ready (shouldn't happen with ConfigInitMsg fix, but keep as fallback)
+			m.viewport = viewport.New(m.Width, m.Height-10) // Leave space for header and footer
+			m.ready = true
+		} else {
+			// Resize existing viewport
+			m.viewport.Width = m.Width
+			m.viewport.Height = m.Height - 10
+		}
+		
+		// Re-render content with new dimensions
+		if m.ready && m.currentStepIdx < len(m.visibleSteps) {
+			// Update width for all visible steps
+			for i := range m.visibleSteps {
+				if step, ok := m.visibleSteps[i].Model.(interface{ SetWidth(int) }); ok {
+					step.SetWidth(m.Width)
+				}
+			}
+			m.viewport.SetContent(m.renderCurrentStep())
+			m.viewport.GotoTop()
+		}
+
 	case ConfigInitMsg:
 		m.session = msg.Session
 		m.templateID = msg.TemplateID
 
-		// Initialize mode indicator
-		m.modeIndicator = components.NewModeIndicator(m.session.ConfigMode)
-
-		// Set up different step flows based on configuration mode
-		if m.session.ConfigMode == utils.ConfigModeSimple {
-			m.steps = []string{
-				"Network Setup",
-				"SSH Setup", 
-				"Deploy Preview",
+		// Initialize viewport immediately to avoid "Initializing..." state
+		if !m.ready {
+			// Use current dimensions if available, otherwise use defaults
+			width := m.Width
+			height := m.Height
+			if width == 0 {
+				width = 80  // Default width
 			}
-		} else {
-			m.steps = []string{
-				"Network Config",
-				"SSH Setup",
-				"Storage Config",
-				"HA Config",
-				"Bundle Selection",
-				"Final Review",
+			if height == 0 {
+				height = 24  // Default height
 			}
+			m.viewport = viewport.New(width, height-10) // Leave space for header and footer
+			m.ready = true
 		}
 
-		// Initialize step indicator
-		m.stepIndicator = components.NewStepIndicator(m.steps, m.currentStep)
+		// Initialize mode indicator
+		m.modeIndicator = components.NewModeIndicator(m.session.ConfigMode)
 
 		// Load template
 		template, err := utils.LoadClusterTemplate(m.templateID)
@@ -115,6 +134,8 @@ func (m ConfigModel) Update(msg tea.Msg) (ConfigModel, tea.Cmd) {
 
 		// Phase 3: Initialize configuration steps
 		m.initializeConfigSteps()
+		m.viewport.SetContent(m.renderCurrentStep())
+		m.viewport.GotoTop()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -135,13 +156,22 @@ func (m ConfigModel) Update(msg tea.Msg) (ConfigModel, tea.Cmd) {
 
 		switch msg.String() {
 		case "enter":
-			if m.currentStepIdx == len(m.configSteps)-1 {
+			if m.currentStepIdx == len(m.visibleSteps)-1 {
 				// Final step - save and continue
 				if m.validateAllSteps() {
 					if err := m.saveConfiguration(); err != nil {
 						m.currentError = fmt.Errorf("Failed to save configuration: %w", err)
 						return m, nil
 					}
+					
+					// Update session state and save
+					m.session.SetPhase("usb")
+					m.session.AddCompletedStep("configuration")
+					if err := m.session.Save(); err != nil {
+						m.currentError = fmt.Errorf("Failed to save session state: %w", err)
+						return m, nil
+					}
+					
 					m.currentError = nil
 					return m, func() tea.Msg {
 						return StateTransitionMsg{To: "usb"}
@@ -151,26 +181,13 @@ func (m ConfigModel) Update(msg tea.Msg) (ConfigModel, tea.Cmd) {
 			}
 			// Move to next step
 			if m.validateCurrentStepModel() {
-				if m.currentStepIdx < len(m.configSteps)-1 {
-					m.currentStepIdx++
-					if m.stepIndicator != nil {
-						m.stepIndicator.SetCurrentStep(m.currentStepIdx)
-					}
-				}
+				m.nextStep()
 			}
 		case "left", "h":
-			if m.currentStepIdx > 0 {
-				m.currentStepIdx--
-				if m.stepIndicator != nil {
-					m.stepIndicator.SetCurrentStep(m.currentStepIdx)
-				}
-			}
+			m.prevStep()
 		case "right", "l":
-			if m.currentStepIdx < len(m.configSteps)-1 && m.validateCurrentStepModel() {
-				m.currentStepIdx++
-				if m.stepIndicator != nil {
-					m.stepIndicator.SetCurrentStep(m.currentStepIdx)
-				}
+			if m.validateCurrentStepModel() {
+				m.nextStep()
 			}
 		case "q", "ctrl+c":
 			return m, func() tea.Msg {
@@ -181,22 +198,30 @@ func (m ConfigModel) Update(msg tea.Msg) (ConfigModel, tea.Cmd) {
 				return StateTransitionMsg{To: "welcome"}
 			}
 		default:
-			// Phase 3: Delegate all other input to the current step
-			if m.currentStepIdx < len(m.configSteps) {
+			// Delegate all other input to the current step
+			if m.currentStepIdx < len(m.visibleSteps) {
 				var updatedStep tea.Model
-				updatedStep, cmd = m.configSteps[m.currentStepIdx].Update(msg)
-				m.configSteps[m.currentStepIdx] = updatedStep.(ConfigStepModel)
+				updatedStep, cmd = m.visibleSteps[m.currentStepIdx].Model.Update(msg)
+				m.visibleSteps[m.currentStepIdx].Model = updatedStep.(ConfigStepModel)
 				if cmd != nil {
 					cmds = append(cmds, cmd)
 				}
+				m.viewport.SetContent(m.renderCurrentStep())
+				m.viewport.GotoTop()
 			}
 		}
 	}
+
+	m.viewport, cmd = m.viewport.Update(msg)
+	cmds = append(cmds, cmd)
 
 	return m, tea.Batch(cmds...)
 }
 
 func (m ConfigModel) View() string {
+	if !m.ready {
+		return "Initializing..."
+	}
 	var content strings.Builder
 
 	// Handle errors
@@ -239,12 +264,11 @@ func (m ConfigModel) View() string {
 		content.WriteString(m.stepIndicator.View() + "\n\n")
 	}
 
-	// Phase 3: Current step content via delegation
-	stepContent := m.renderCurrentStep()
-	content.WriteString(stepContent + "\n\n")
+	// Viewport for scrollable content
+	content.WriteString(m.viewport.View() + "\n\n")
 
 	// Help text
-	helpText := "← → Navigate • Enter Continue • M Switch Mode • Esc Back • q Quit"
+	helpText := "↑/↓ Scroll • ←/→ Navigate • Enter Continue • M Switch Mode • Esc Back • q Quit"
 	helpStyle := lipgloss.NewStyle().
 		Foreground(colors.ZtcMutedGray).
 		Border(lipgloss.NormalBorder(), true, false, false, false).
@@ -258,55 +282,145 @@ func (m ConfigModel) View() string {
 	return content.String()
 }
 
-// Phase 3: Delegate rendering to current step model
+// renderCurrentStep renders the current step (Pure rendering function)
 func (m ConfigModel) renderCurrentStep() string {
-	if m.currentStepIdx < len(m.configSteps) {
-		currentStep := m.configSteps[m.currentStepIdx]
-		
-		// Only show steps that should be visible in current mode
-		if m.session != nil && currentStep.ShouldShow(m.session.ConfigMode) {
-			return currentStep.View()
-		}
-		
-		// Skip steps that shouldn't be shown and move to next
-		if m.currentStepIdx < len(m.configSteps)-1 {
-			m.currentStepIdx++
-			return m.renderCurrentStep()
-		}
+	if m.currentStepIdx < len(m.visibleSteps) {
+		currentStep := m.visibleSteps[m.currentStepIdx]
+		return currentStep.Model.View()
 	}
 	
 	return "No available steps for current configuration mode"
 }
 
-// Phase 3: initializeConfigSteps creates and initializes all configuration step models
+// nextStep navigates to the next step if possible
+func (m *ConfigModel) nextStep() {
+	if m.currentStepIdx < len(m.visibleSteps)-1 {
+		m.currentStepIdx++
+		if m.stepIndicator != nil {
+			m.stepIndicator.SetCurrentStep(m.currentStepIdx)
+		}
+		m.viewport.SetContent(m.renderCurrentStep())
+		m.viewport.GotoTop()
+	}
+}
+
+// prevStep navigates to the previous step if possible
+func (m *ConfigModel) prevStep() {
+	if m.currentStepIdx > 0 {
+		m.currentStepIdx--
+		if m.stepIndicator != nil {
+			m.stepIndicator.SetCurrentStep(m.currentStepIdx)
+		}
+		m.viewport.SetContent(m.renderCurrentStep())
+		m.viewport.GotoTop()
+	}
+}
+
+// initializeConfigSteps creates the step definitions and sets up visible steps
 func (m *ConfigModel) initializeConfigSteps() {
-	m.configSteps = []ConfigStepModel{
-		config_steps.NewNetworkModel(),
-		config_steps.NewSSHModel(),
-		config_steps.NewStorageModel(),
-		config_steps.NewHAModel(),
-		config_steps.NewBundleModel(),
-		config_steps.NewReviewModel(),
+	// Define all steps with their metadata - single source of truth
+	m.allSteps = []StepDefinition{
+		{
+			Model:            config_steps.NewNetworkModel(),
+			SimpleName:       "Network Setup",
+			AdvancedName:     "Network Config", 
+			ShowInSimpleMode: true,
+		},
+		{
+			Model:            config_steps.NewSSHModel(),
+			SimpleName:       "SSH Setup",
+			AdvancedName:     "SSH Setup",
+			ShowInSimpleMode: true,
+		},
+		{
+			Model:            config_steps.NewStorageModel(),
+			SimpleName:       "",
+			AdvancedName:     "Storage Config",
+			ShowInSimpleMode: false,
+		},
+		{
+			Model:            config_steps.NewHAModel(),
+			SimpleName:       "",
+			AdvancedName:     "HA Config",
+			ShowInSimpleMode: false,
+		},
+		{
+			Model:            config_steps.NewBundleModel(),
+			SimpleName:       "",
+			AdvancedName:     "Bundle Selection",
+			ShowInSimpleMode: false,
+		},
+		{
+			Model:            config_steps.NewReviewModel(),
+			SimpleName:       "Deploy Preview",
+			AdvancedName:     "Final Review",
+			ShowInSimpleMode: true,
+		},
 	}
 
-	// Initialize each step with session and template
-	for _, step := range m.configSteps {
-		step.InitWithConfig(m.session, m.template)
+	// Initialize all step models with session and template
+	for i := range m.allSteps {
+		m.allSteps[i].Model.InitWithConfig(m.session, m.template)
+		// Set width if available
+		if m.Width > 0 {
+			if s, ok := m.allSteps[i].Model.(interface{ SetWidth(int) }); ok {
+				s.SetWidth(m.Width)
+			}
+		}
 	}
 
-	// Set current step to 0
+	// Build visible steps list based on current mode
+	m.buildVisibleSteps()
+	
+	// Initialize step indicator with visible step names
+	m.initializeStepIndicator()
+	
+	// Start at first step
 	m.currentStepIdx = 0
 }
 
-// Phase 3: validateCurrentStepModel validates the current step using the step's Validate method
+// buildVisibleSteps creates the visibleSteps slice based on current configuration mode
+func (m *ConfigModel) buildVisibleSteps() {
+	m.visibleSteps = make([]*StepDefinition, 0)
+	
+	for i := range m.allSteps {
+		step := &m.allSteps[i]
+		if m.session.ConfigMode == utils.ConfigModeSimple {
+			if step.ShowInSimpleMode {
+				m.visibleSteps = append(m.visibleSteps, step)
+			}
+		} else {
+			// Advanced mode shows all steps
+			m.visibleSteps = append(m.visibleSteps, step)
+		}
+	}
+}
+
+// initializeStepIndicator creates the step indicator with names from visible steps
+func (m *ConfigModel) initializeStepIndicator() {
+	stepNames := make([]string, len(m.visibleSteps))
+	
+	for i, step := range m.visibleSteps {
+		if m.session.ConfigMode == utils.ConfigModeSimple {
+			stepNames[i] = step.SimpleName
+		} else {
+			stepNames[i] = step.AdvancedName
+		}
+	}
+	
+	m.stepIndicator = components.NewStepIndicator(stepNames, 0)
+}
+
+// validateCurrentStepModel validates the current step using the step's Validate method
 func (m *ConfigModel) validateCurrentStepModel() bool {
-	if m.currentStepIdx < len(m.configSteps) {
-		if err := m.configSteps[m.currentStepIdx].Validate(); err != nil {
+	if m.currentStepIdx < len(m.visibleSteps) {
+		currentStep := m.visibleSteps[m.currentStepIdx]
+		if err := currentStep.Model.Validate(); err != nil {
 			m.currentError = fmt.Errorf("Step validation failed: %w", err)
 			return false
 		}
 		// Apply step changes to template
-		if err := m.configSteps[m.currentStepIdx].ApplyToTemplate(m.template); err != nil {
+		if err := currentStep.Model.ApplyToTemplate(m.template); err != nil {
 			m.currentError = fmt.Errorf("Failed to apply step configuration: %w", err)
 			return false
 		}
@@ -314,15 +428,15 @@ func (m *ConfigModel) validateCurrentStepModel() bool {
 	return true
 }
 
-// Phase 3: validateAllSteps validates all configuration steps
+// validateAllSteps validates all visible configuration steps
 func (m *ConfigModel) validateAllSteps() bool {
-	for i, step := range m.configSteps {
-		if err := step.Validate(); err != nil {
+	for i, stepDef := range m.visibleSteps {
+		if err := stepDef.Model.Validate(); err != nil {
 			m.currentError = fmt.Errorf("Step %d validation failed: %w", i+1, err)
 			return false
 		}
 		// Apply step changes to template
-		if err := step.ApplyToTemplate(m.template); err != nil {
+		if err := stepDef.Model.ApplyToTemplate(m.template); err != nil {
 			m.currentError = fmt.Errorf("Failed to apply step %d configuration: %w", i+1, err)
 			return false
 		}
@@ -336,7 +450,20 @@ func (m *ConfigModel) saveConfiguration() error {
 		return fmt.Errorf("no template to save")
 	}
 	
-	// Here you would implement the actual save logic
-	// For now, just return success
+	if m.session == nil {
+		return fmt.Errorf("no session available")
+	}
+	
+	// Save the cluster configuration to cluster.yaml
+	if err := m.session.SaveClusterConfig(m.template); err != nil {
+		return fmt.Errorf("failed to save cluster configuration: %w", err)
+	}
+	
 	return nil
 }
+
+
+
+
+
+

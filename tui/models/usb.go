@@ -128,19 +128,15 @@ type BlockDevice struct {
 func NewUSBModel() USBModel {
 	// Default node configuration
 	nodeConfig := []NodeConfig{
-		{Hostname: "k3s-master", IP: "192.168.50.10", Role: "master"},
-		{Hostname: "k3s-worker-01", IP: "192.168.50.11", Role: "worker"},
-		{Hostname: "k3s-worker-02", IP: "192.168.50.12", Role: "worker"},
-		{Hostname: "k3s-worker-03", IP: "192.168.50.13", Role: "worker"},
-		{Hostname: "k8s-storage", IP: "192.168.50.20", Role: "storage"},
+		{Hostname: "k3s-master", IP: "192.168.100.10", Role: "master"}
 	}
 
 	spinner := components.NewSpinner()
 	spinner.Start()
 
 	return USBModel{
-		Width:          80,
-		Height:         24,
+		Width:          0, // Will be set by WindowSizeMsg
+		Height:         0, // Will be set by WindowSizeMsg
 		devices:        []USBDeviceInfo{}, // Will be populated by scanning
 		currentStep:    0,
 		selected:       0,
@@ -220,6 +216,15 @@ func (m USBModel) Update(msg tea.Msg) (USBModel, tea.Cmd) {
 		m.progress = msg.Progress
 		if m.progress >= 100 {
 			// All devices created, proceed to deployment
+			// Update session state and save
+			if m.session != nil {
+				m.session.SetPhase("deploy")
+				m.session.AddCompletedStep("usb")
+				if err := m.session.Save(); err != nil {
+					m.createError = fmt.Sprintf("Failed to save session: %v", err)
+					return m, nil
+				}
+			}
 			return m, func() tea.Msg {
 				return StateTransitionMsg{To: "deploy"}
 			}
@@ -233,6 +238,15 @@ func (m USBModel) Update(msg tea.Msg) (USBModel, tea.Cmd) {
 
 	case USBSkipMsg:
 		// Skip USB creation and proceed to deployment
+		// Update session state and save
+		if m.session != nil {
+			m.session.SetPhase("deploy")
+			m.session.AddCompletedStep("usb-skipped")
+			if err := m.session.Save(); err != nil {
+				m.createError = fmt.Sprintf("Failed to save session: %v", err)
+				return m, nil
+			}
+		}
 		return m, func() tea.Msg {
 			return StateTransitionMsg{To: "deploy"}
 		}

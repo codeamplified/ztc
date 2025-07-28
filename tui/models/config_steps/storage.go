@@ -131,7 +131,7 @@ func (m *StorageModel) InitWithConfig(session *utils.Session, template *utils.Cl
 }
 
 // Update handles messages and user input
-func (m StorageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *StorageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 	
@@ -147,6 +147,18 @@ func (m StorageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.updateFocusedField(msg)
 			if cmd != nil {
 				cmds = append(cmds, cmd)
+			}
+		}
+	
+	case tea.MouseMsg:
+		if msg.Type == tea.MouseLeft {
+			// Handle mouse click to focus fields
+			clickedFieldIndex := m.getFieldIndexFromY(msg.Y)
+			if clickedFieldIndex >= 0 && clickedFieldIndex < len(m.fields) {
+				// Only change focus if clicking a different field
+				if clickedFieldIndex != m.focusedField {
+					m.setFocusIndex(clickedFieldIndex)
+				}
 			}
 		}
 	}
@@ -434,28 +446,234 @@ func getIntValueOrDefault(value, defaultValue int) int {
 	return value
 }
 
-// Focus management methods (simplified for space - implement similar to NetworkModel)
+// Helper methods for focus management
 func (m *StorageModel) setFocus() {
-	// Implementation similar to NetworkModel
+	m.clearAllFocus()
+	
+	if len(m.fields) > 0 && m.focusedField < len(m.fields) {
+		m.focusField(m.fields[m.focusedField])
+	}
+}
+
+// setFocusIndex sets focus to a specific field index
+func (m *StorageModel) setFocusIndex(index int) {
+	m.focusedField = index
+	m.setFocus()
+}
+
+// getFieldIndexFromY calculates which field was clicked based on Y coordinate
+func (m *StorageModel) getFieldIndexFromY(y int) int {
+	// Skip calculation in simple mode as it shows different content
+	if m.session != nil && m.session.ConfigMode == utils.ConfigModeSimple {
+		return -1
+	}
+	
+	// Account for title and header (4 lines)
+	// "Storage Configuration" + "\n\n" + "Configure storage..." + "\n\n"
+	headerOffset := 4
+	
+	// Each field takes approximately 6 lines (label + box + \n\n)
+	fieldHeight := 6
+	
+	// Calculate which field was clicked
+	adjustedY := y - headerOffset
+	if adjustedY < 0 {
+		return -1
+	}
+	
+	fieldIndex := adjustedY / fieldHeight
+	
+	// Validate field index
+	if fieldIndex >= len(m.fields) {
+		return -1
+	}
+	
+	return fieldIndex
 }
 
 func (m *StorageModel) clearAllFocus() {
-	// Implementation similar to NetworkModel
+	if m.storageDefaultClassSelect != nil {
+		m.storageDefaultClassSelect.Blur()
+	}
+	if m.localPathEnabledToggle != nil {
+		m.localPathEnabledToggle.Blur()
+	}
+	if m.longhornEnabledToggle != nil {
+		m.longhornEnabledToggle.Blur()
+	}
+	if m.longhornNamespaceInput != nil {
+		m.longhornNamespaceInput.Blur()
+	}
+	if m.longhornReplicaCountInput != nil {
+		m.longhornReplicaCountInput.Blur()
+	}
+	if m.longhornStorageClassInput != nil {
+		m.longhornStorageClassInput.Blur()
+	}
+	if m.longhornReclaimPolicySelect != nil {
+		m.longhornReclaimPolicySelect.Blur()
+	}
+	if m.longhornBackupTargetInput != nil {
+		m.longhornBackupTargetInput.Blur()
+	}
+	if m.longhornDataPathInput != nil {
+		m.longhornDataPathInput.Blur()
+	}
+	if m.nfsEnabledToggle != nil {
+		m.nfsEnabledToggle.Blur()
+	}
+	if m.nfsNamespaceInput != nil {
+		m.nfsNamespaceInput.Blur()
+	}
+	if m.nfsBackendStorageInput != nil {
+		m.nfsBackendStorageInput.Blur()
+	}
+	if m.nfsStorageSizeInput != nil {
+		m.nfsStorageSizeInput.Blur()
+	}
+	if m.nfsStorageClassInput != nil {
+		m.nfsStorageClassInput.Blur()
+	}
 }
 
 func (m *StorageModel) focusField(fieldName string) {
-	// Implementation similar to NetworkModel
+	switch fieldName {
+	case "storageDefaultClass":
+		if m.storageDefaultClassSelect != nil {
+			m.storageDefaultClassSelect.Focus()
+		}
+	case "localPathEnabled":
+		if m.localPathEnabledToggle != nil {
+			m.localPathEnabledToggle.Focus()
+		}
+	case "longhornEnabled":
+		if m.longhornEnabledToggle != nil {
+			m.longhornEnabledToggle.Focus()
+		}
+	case "longhornNamespace":
+		if m.longhornNamespaceInput != nil {
+			m.longhornNamespaceInput.Focus()
+		}
+	case "longhornReplicaCount":
+		if m.longhornReplicaCountInput != nil {
+			m.longhornReplicaCountInput.Focus()
+		}
+	case "longhornStorageClass":
+		if m.longhornStorageClassInput != nil {
+			m.longhornStorageClassInput.Focus()
+		}
+	case "longhornReclaimPolicy":
+		if m.longhornReclaimPolicySelect != nil {
+			m.longhornReclaimPolicySelect.Focus()
+		}
+	case "longhornBackupTarget":
+		if m.longhornBackupTargetInput != nil {
+			m.longhornBackupTargetInput.Focus()
+		}
+	case "longhornDataPath":
+		if m.longhornDataPathInput != nil {
+			m.longhornDataPathInput.Focus()
+		}
+	case "nfsEnabled":
+		if m.nfsEnabledToggle != nil {
+			m.nfsEnabledToggle.Focus()
+		}
+	case "nfsNamespace":
+		if m.nfsNamespaceInput != nil {
+			m.nfsNamespaceInput.Focus()
+		}
+	case "nfsBackendStorage":
+		if m.nfsBackendStorageInput != nil {
+			m.nfsBackendStorageInput.Focus()
+		}
+	case "nfsStorageSize":
+		if m.nfsStorageSizeInput != nil {
+			m.nfsStorageSizeInput.Focus()
+		}
+	case "nfsStorageClass":
+		if m.nfsStorageClassInput != nil {
+			m.nfsStorageClassInput.Focus()
+		}
+	}
 }
 
 func (m *StorageModel) nextField() {
-	// Implementation similar to NetworkModel
+	if len(m.fields) > 0 && m.focusedField < len(m.fields)-1 {
+		m.focusedField++
+		m.setFocus()
+	}
 }
 
 func (m *StorageModel) prevField() {
-	// Implementation similar to NetworkModel  
+	if m.focusedField > 0 {
+		m.focusedField--
+		m.setFocus()
+	}
 }
 
 func (m *StorageModel) updateFocusedField(msg tea.Msg) tea.Cmd {
-	// Implementation similar to NetworkModel
+	if len(m.fields) == 0 || m.focusedField >= len(m.fields) {
+		return nil
+	}
+	
+	fieldToUpdate := m.fields[m.focusedField]
+	switch fieldToUpdate {
+	case "storageDefaultClass":
+		if m.storageDefaultClassSelect != nil {
+			return m.storageDefaultClassSelect.Update(msg)
+		}
+	case "localPathEnabled":
+		if m.localPathEnabledToggle != nil {
+			return m.localPathEnabledToggle.Update(msg)
+		}
+	case "longhornEnabled":
+		if m.longhornEnabledToggle != nil {
+			return m.longhornEnabledToggle.Update(msg)
+		}
+	case "longhornNamespace":
+		if m.longhornNamespaceInput != nil {
+			return m.longhornNamespaceInput.Update(msg)
+		}
+	case "longhornReplicaCount":
+		if m.longhornReplicaCountInput != nil {
+			return m.longhornReplicaCountInput.Update(msg)
+		}
+	case "longhornStorageClass":
+		if m.longhornStorageClassInput != nil {
+			return m.longhornStorageClassInput.Update(msg)
+		}
+	case "longhornReclaimPolicy":
+		if m.longhornReclaimPolicySelect != nil {
+			return m.longhornReclaimPolicySelect.Update(msg)
+		}
+	case "longhornBackupTarget":
+		if m.longhornBackupTargetInput != nil {
+			return m.longhornBackupTargetInput.Update(msg)
+		}
+	case "longhornDataPath":
+		if m.longhornDataPathInput != nil {
+			return m.longhornDataPathInput.Update(msg)
+		}
+	case "nfsEnabled":
+		if m.nfsEnabledToggle != nil {
+			return m.nfsEnabledToggle.Update(msg)
+		}
+	case "nfsNamespace":
+		if m.nfsNamespaceInput != nil {
+			return m.nfsNamespaceInput.Update(msg)
+		}
+	case "nfsBackendStorage":
+		if m.nfsBackendStorageInput != nil {
+			return m.nfsBackendStorageInput.Update(msg)
+		}
+	case "nfsStorageSize":
+		if m.nfsStorageSizeInput != nil {
+			return m.nfsStorageSizeInput.Update(msg)
+		}
+	case "nfsStorageClass":
+		if m.nfsStorageClassInput != nil {
+			return m.nfsStorageClassInput.Update(msg)
+		}
+	}
 	return nil
 }

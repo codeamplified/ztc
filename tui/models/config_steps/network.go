@@ -101,7 +101,7 @@ func (m *NetworkModel) InitWithConfig(session *utils.Session, template *utils.Cl
 }
 
 // Update handles messages and user input
-func (m NetworkModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *NetworkModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 	
@@ -117,6 +117,18 @@ func (m NetworkModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.updateFocusedField(msg)
 			if cmd != nil {
 				cmds = append(cmds, cmd)
+			}
+		}
+	
+	case tea.MouseMsg:
+		if msg.Type == tea.MouseLeft {
+			// Handle mouse click to focus fields
+			clickedFieldIndex := m.getFieldIndexFromY(msg.Y)
+			if clickedFieldIndex >= 0 && clickedFieldIndex < len(m.fields) {
+				// Only change focus if clicking a different field
+				if clickedFieldIndex != m.focusedField {
+					m.setFocusIndex(clickedFieldIndex)
+				}
 			}
 		}
 	}
@@ -328,6 +340,44 @@ func (m *NetworkModel) setFocus() {
 	if len(fields) > 0 && m.focusedField < len(fields) {
 		m.focusField(fields[m.focusedField])
 	}
+}
+
+// setFocusIndex sets focus to a specific field index
+func (m *NetworkModel) setFocusIndex(index int) {
+	m.focusedField = index
+	m.setFocus()
+}
+
+// getFieldIndexFromY calculates which field was clicked based on Y coordinate
+func (m *NetworkModel) getFieldIndexFromY(y int) int {
+	// Account for title and header (3 lines)
+	// "Network & Cluster Configuration" + "\n\n" + "Essential/Complete..." + "\n\n"
+	headerOffset := 4
+	
+	// Each field takes approximately 6 lines (label + box + \n\n)
+	fieldHeight := 6
+	
+	// Calculate which field was clicked
+	adjustedY := y - headerOffset
+	if adjustedY < 0 {
+		return -1
+	}
+	
+	fieldIndex := adjustedY / fieldHeight
+	
+	// Validate field index based on mode
+	var maxFields int
+	if m.session != nil && m.session.ConfigMode == utils.ConfigModeSimple {
+		maxFields = 4 // clusterName, networkSubnet, gateway, dnsDomain
+	} else {
+		maxFields = len(m.fields)
+	}
+	
+	if fieldIndex >= maxFields {
+		return -1
+	}
+	
+	return fieldIndex
 }
 
 func (m *NetworkModel) clearAllFocus() {

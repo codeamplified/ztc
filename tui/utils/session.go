@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,6 +72,7 @@ type ClusterMetadata struct {
 	Name        string    `yaml:"name" json:"name"`
 	Description string    `yaml:"description" json:"description"`
 	Version     string    `yaml:"version" json:"version"`
+	IsFeatured  bool      `yaml:"is_featured,omitempty" json:"is_featured,omitempty"`
 	HAConfig    *HAConfig `yaml:"ha_config,omitempty" json:"ha_config,omitempty"`
 }
 
@@ -338,7 +340,15 @@ type BackupConfig struct {
 	RetentionDays     int    `yaml:"retention_days" json:"retention_days"`
 }
 
-const sessionFile = ".ztc-session.yaml"
+const (
+	sessionFile              = ".ztc-session.yaml"
+	DefaultClusterConfigFile = "cluster.yaml"
+	deploymentLogFile        = ".ztc-deployment.log"
+	statusFile               = ".ztc-status.json"
+	templatesDir             = "templates"
+	clusterTemplatePrefix    = "cluster-"
+	templateFileExt          = ".yaml"
+)
 
 // NewSession creates a new session with default values
 func NewSession() *Session {
@@ -347,7 +357,7 @@ func NewSession() *Session {
 		StartedAt:      time.Now(),
 		CurrentPhase:   "welcome",
 		CompletedSteps: []string{},
-		ClusterConfig:  "cluster.yaml",
+		ClusterConfig:  DefaultClusterConfigFile,
 		ConfigMode:     ConfigModeSimple, // Default to simple mode
 		USBDevices:     []USBDevice{},
 		DeploymentLog:  "",
@@ -389,21 +399,19 @@ func (s *Session) Save() error {
 	return nil
 }
 
-// SetPhase sets the current phase and saves the session
-func (s *Session) SetPhase(phase string) error {
+// SetPhase sets the current phase
+func (s *Session) SetPhase(phase string) {
 	s.CurrentPhase = phase
-	return s.Save()
 }
 
 // AddCompletedStep adds a step to the completed steps
-func (s *Session) AddCompletedStep(step string) error {
+func (s *Session) AddCompletedStep(step string) {
 	for _, existing := range s.CompletedSteps {
 		if existing == step {
-			return nil // Already completed
+			return // Already completed
 		}
 	}
 	s.CompletedSteps = append(s.CompletedSteps, step)
-	return s.Save()
 }
 
 // IsStepCompleted checks if a step is completed
@@ -417,15 +425,13 @@ func (s *Session) IsStepCompleted(step string) bool {
 }
 
 // AddUSBDevice adds a USB device to the session
-func (s *Session) AddUSBDevice(device USBDevice) error {
+func (s *Session) AddUSBDevice(device USBDevice) {
 	s.USBDevices = append(s.USBDevices, device)
-	return s.Save()
 }
 
 // SetProgress sets progress for a specific task
-func (s *Session) SetProgress(task string, progress int) error {
+func (s *Session) SetProgress(task string, progress int) {
 	s.Progress[task] = progress
-	return s.Save()
 }
 
 // GetProgress gets progress for a specific task
@@ -434,9 +440,8 @@ func (s *Session) GetProgress(task string) int {
 }
 
 // SetMetadata sets metadata key-value pair
-func (s *Session) SetMetadata(key, value string) error {
+func (s *Session) SetMetadata(key, value string) {
 	s.Metadata[key] = value
-	return s.Save()
 }
 
 // GetMetadata gets metadata value by key
@@ -515,12 +520,12 @@ func GetWorkspaceDir() string {
 
 // GetLogFile returns the path to the deployment log file
 func GetLogFile() string {
-	return filepath.Join(GetWorkspaceDir(), ".ztc-deployment.log")
+	return filepath.Join(GetWorkspaceDir(), deploymentLogFile)
 }
 
 // GetStatusFile returns the path to the deployment status file
 func GetStatusFile() string {
-	return filepath.Join(GetWorkspaceDir(), ".ztc-status.json")
+	return filepath.Join(GetWorkspaceDir(), statusFile)
 }
 
 // Mission types removed - TUI is now template-agnostic
@@ -537,7 +542,7 @@ type Template struct {
 
 // LoadClusterTemplate loads a cluster template based on template ID
 func LoadClusterTemplate(templateID string) (*ClusterConfig, error) {
-	templatePath := filepath.Join(GetWorkspaceDir(), "templates", fmt.Sprintf("cluster-%s.yaml", templateID))
+	templatePath := filepath.Join(GetWorkspaceDir(), templatesDir, fmt.Sprintf("%s%s%s", clusterTemplatePrefix, templateID, templateFileExt))
 
 	// Check if template file exists
 	if _, err := os.Stat(templatePath); os.IsNotExist(err) {
@@ -564,6 +569,8 @@ func LoadClusterTemplate(templateID string) (*ClusterConfig, error) {
 // ValidateTemplate is now implemented in validation.go using JSON schema validation
 
 // GetAvailableBundles returns all available workload bundles (template-agnostic)
+// TODO: Consider loading bundles from YAML files in kubernetes/workloads/bundles/ directory
+// instead of hardcoding them here for better maintainability and flexibility
 func GetAvailableBundles() []Bundle {
 	return []Bundle{
 		{
@@ -636,15 +643,15 @@ type TemplateInfo struct {
 
 // LoadAvailableTemplates discovers all cluster template files
 func LoadAvailableTemplates() ([]TemplateInfo, error) {
-	templatesDir := filepath.Join(GetWorkspaceDir(), "templates")
+	templatesDirPath := filepath.Join(GetWorkspaceDir(), templatesDir)
 
 	// Check if templates directory exists
-	if _, err := os.Stat(templatesDir); os.IsNotExist(err) {
-		return nil, fmt.Errorf("templates directory not found: %s", templatesDir)
+	if _, err := os.Stat(templatesDirPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("templates directory not found: %s", templatesDirPath)
 	}
 
 	// Read directory contents
-	entries, err := os.ReadDir(templatesDir)
+	entries, err := os.ReadDir(templatesDirPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read templates directory: %w", err)
 	}
@@ -658,31 +665,38 @@ func LoadAvailableTemplates() ([]TemplateInfo, error) {
 		}
 
 		name := entry.Name()
-		if !strings.HasPrefix(name, "cluster-") || !strings.HasSuffix(name, ".yaml") {
+		if !strings.HasPrefix(name, clusterTemplatePrefix) || !strings.HasSuffix(name, templateFileExt) {
 			continue
 		}
 
-		filePath := filepath.Join(templatesDir, name)
+		filePath := filepath.Join(templatesDirPath, name)
 
 		// Extract template ID from filename
-		baseName := strings.TrimSuffix(name, ".yaml")
-		id := strings.TrimPrefix(baseName, "cluster-")
+		baseName := strings.TrimSuffix(name, templateFileExt)
+		id := strings.TrimPrefix(baseName, clusterTemplatePrefix)
 
 		// Determine if this is a featured template
-		// For now, consider templates with good descriptions as featured
-		// In the future, this could come from template metadata
+		// Start with default based on heuristics, but prefer explicit is_featured field
 		isFeatured := false
 
 		// Read the template file to extract metadata
 		data, err := os.ReadFile(filePath)
 		if err != nil {
 			// Log warning but continue with other templates
+			log.Printf("Warning: Failed to read template file %s: %v", filePath, err)
 			continue
 		}
 
 		// Try to parse as ClusterConfig to get name and description
 		var config ClusterConfig
-		templateName := strings.Title(strings.ReplaceAll(id, "-", " "))
+		// Use title case conversion (strings.Title is deprecated in Go 1.18+)
+		words := strings.Split(strings.ReplaceAll(id, "-", " "), " ")
+		for i, word := range words {
+			if len(word) > 0 {
+				words[i] = strings.ToUpper(word[:1]) + strings.ToLower(word[1:])
+			}
+		}
+		templateName := strings.Join(words, " ")
 		templateDesc := fmt.Sprintf("Cluster template: %s", templateName)
 
 		if err := yaml.Unmarshal(data, &config); err == nil {
@@ -693,28 +707,37 @@ func LoadAvailableTemplates() ([]TemplateInfo, error) {
 				templateDesc = config.Cluster.Description
 			}
 
-			// Determine featured status based on template quality/completeness
-			// A featured template should have:
-			// - A clear name and description
-			// - At least one node configured
-			// - Storage configuration
-			// - Components configured
-			if config.Cluster.Name != "" &&
-				config.Cluster.Description != "" &&
-				len(config.Nodes.ClusterNodes) > 0 &&
-				config.Storage.DefaultStorageClass != "" &&
-				(config.Components.ArgoCD.Enabled || config.Components.Monitoring.Enabled) {
+			// Use explicit is_featured field if set, otherwise use heuristics
+			if config.Cluster.IsFeatured {
 				isFeatured = true
+			} else {
+				// Fallback: determine featured status based on template quality/completeness
+				// A featured template should have:
+				// - A clear name and description
+				// - At least one node configured
+				// - Storage configuration
+				// - Components configured
+				if config.Cluster.Name != "" &&
+					config.Cluster.Description != "" &&
+					len(config.Nodes.ClusterNodes) > 0 &&
+					config.Storage.DefaultStorageClass != "" &&
+					(config.Components.ArgoCD.Enabled || config.Components.Monitoring.Enabled) {
+					isFeatured = true
+				}
 			}
+		} else {
+			// Log warning about YAML parsing error but continue with fallback data
+			log.Printf("Warning: Failed to parse template YAML %s: %v", filePath, err)
 		}
 
-		templates = append(templates, TemplateInfo{
+		template := TemplateInfo{
 			Name:        templateName,
 			Description: templateDesc,
 			ID:          id,
 			FilePath:    filePath,
 			IsFeatured:  isFeatured,
-		})
+		}
+		templates = append(templates, template)
 	}
 
 	return templates, nil

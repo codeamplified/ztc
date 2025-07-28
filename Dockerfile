@@ -30,8 +30,6 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     python3-venv \
-    # Go for TUI application
-    golang-go \
     # Network tools
     dnsutils \
     net-tools \
@@ -79,6 +77,14 @@ RUN ansible-galaxy collection install \
     kubernetes.core \
     community.general \
     ansible.posix
+
+# Install Go
+RUN GO_VERSION="1.24.5" \
+    && curl -Lo go.tar.gz "https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+    && tar -C /usr/local -xzf go.tar.gz \
+    && rm go.tar.gz \
+    && ln -s /usr/local/go/bin/go /usr/local/bin/go \
+    && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 
 # Install kubeseal (for Sealed Secrets)
 RUN KUBESEAL_VERSION="v0.24.5" \

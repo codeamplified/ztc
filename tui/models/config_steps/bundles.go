@@ -72,7 +72,7 @@ func (m *BundleModel) InitWithConfig(session *utils.Session, template *utils.Clu
 }
 
 // Update handles messages and user input
-func (m BundleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *BundleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 	
@@ -88,6 +88,18 @@ func (m BundleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.updateFocusedField(msg)
 			if cmd != nil {
 				cmds = append(cmds, cmd)
+			}
+		}
+	
+	case tea.MouseMsg:
+		if msg.Type == tea.MouseLeft {
+			// Handle mouse click to focus fields
+			clickedFieldIndex := m.getFieldIndexFromY(msg.Y)
+			if clickedFieldIndex >= 0 && clickedFieldIndex < len(m.availableBundles) {
+				// Only change focus if clicking a different field
+				if clickedFieldIndex != m.focusedField {
+					m.setFocusIndex(clickedFieldIndex)
+				}
 			}
 		}
 	}
@@ -265,6 +277,43 @@ func (m *BundleModel) setFocus() {
 			toggle.Focus()
 		}
 	}
+}
+
+// setFocusIndex sets focus to a specific field index
+func (m *BundleModel) setFocusIndex(index int) {
+	m.focusedField = index
+	m.setFocus()
+}
+
+// getFieldIndexFromY calculates which field was clicked based on Y coordinate
+func (m *BundleModel) getFieldIndexFromY(y int) int {
+	// Skip calculation in simple mode as it shows different content
+	if m.session != nil && m.session.ConfigMode == utils.ConfigModeSimple {
+		return -1
+	}
+	
+	// Account for title and header (4 lines)
+	// "Workload Bundle Selection" + "\n\n" + "Choose applications..." + "\n\n"
+	headerOffset := 4
+	
+	// Each bundle takes approximately 4 lines (category header + toggle + \n)
+	// This is a simplified calculation as bundles are grouped by categories
+	bundleHeight := 4
+	
+	// Calculate which field was clicked
+	adjustedY := y - headerOffset
+	if adjustedY < 0 {
+		return -1
+	}
+	
+	fieldIndex := adjustedY / bundleHeight
+	
+	// Validate field index
+	if fieldIndex >= len(m.availableBundles) {
+		return -1
+	}
+	
+	return fieldIndex
 }
 
 func (m *BundleModel) updateFocusedField(msg tea.Msg) tea.Cmd {

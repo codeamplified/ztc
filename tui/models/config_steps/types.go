@@ -25,6 +25,14 @@ type ConfigStepModel interface {
 	ShouldShow(mode utils.ConfigurationMode) bool
 }
 
+// StepDefinition defines a complete step with its model and metadata
+type StepDefinition struct {
+	Model            ConfigStepModel
+	SimpleName       string // Name shown in simple mode
+	AdvancedName     string // Name shown in advanced mode  
+	ShowInSimpleMode bool   // Whether to show this step in simple mode
+}
+
 // StepTransitionMsg is sent when transitioning between steps
 type StepTransitionMsg struct {
 	Direction string // "next", "previous", "specific"

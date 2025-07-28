@@ -36,8 +36,8 @@ type CompleteInitMsg struct {
 // NewCompleteModel creates a new completion model
 func NewCompleteModel() CompleteModel {
 	return CompleteModel{
-		Width:  80,
-		Height: 24,
+		Width:  0, // Will be set by WindowSizeMsg
+		Height: 0, // Will be set by WindowSizeMsg
 		services: []ServiceInfo{
 			{
 				Name:        "Homepage Dashboard",

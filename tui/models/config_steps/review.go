@@ -55,7 +55,7 @@ func (m *ReviewModel) InitWithConfig(session *utils.Session, template *utils.Clu
 }
 
 // Update handles messages and user input
-func (m ReviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *ReviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Review is read-only, no input handling needed
 	return m, nil
 }

@@ -39,8 +39,8 @@ type DeployInitMsg struct {
 // NewDeployModel creates a new deployment model
 func NewDeployModel() DeployModel {
 	return DeployModel{
-		Width:  80,
-		Height: 24,
+		Width:  0, // Will be set by WindowSizeMsg
+		Height: 0, // Will be set by WindowSizeMsg
 		phases: []DeployPhase{
 			{
 				Name:        "Infrastructure",
@@ -117,6 +117,15 @@ func (m DeployModel) Update(msg tea.Msg) (DeployModel, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			if m.completed {
+				// Update session state and save
+				if m.session != nil {
+					m.session.SetPhase("complete")
+					m.session.AddCompletedStep("deployment")
+					if err := m.session.Save(); err != nil {
+						m.error = fmt.Errorf("failed to save session: %w", err)
+						return m, nil
+					}
+				}
 				return m, func() tea.Msg {
 					return StateTransitionMsg{To: "complete"}
 				}

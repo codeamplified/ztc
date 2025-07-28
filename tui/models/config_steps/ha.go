@@ -114,7 +114,7 @@ func (m *HAModel) InitWithConfig(session *utils.Session, template *utils.Cluster
 }
 
 // Update handles messages and user input
-func (m HAModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *HAModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 	
@@ -130,6 +130,18 @@ func (m HAModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.updateFocusedField(msg)
 			if cmd != nil {
 				cmds = append(cmds, cmd)
+			}
+		}
+	
+	case tea.MouseMsg:
+		if msg.Type == tea.MouseLeft {
+			// Handle mouse click to focus fields
+			clickedFieldIndex := m.getFieldIndexFromY(msg.Y)
+			if clickedFieldIndex >= 0 && clickedFieldIndex < len(m.fields) {
+				// Only change focus if clicking a different field
+				if clickedFieldIndex != m.focusedField {
+					m.setFocusIndex(clickedFieldIndex)
+				}
 			}
 		}
 	}
@@ -316,28 +328,146 @@ func (m HAModel) ShouldShow(mode utils.ConfigurationMode) bool {
 	return mode == utils.ConfigModeAdvanced // Only show in advanced mode
 }
 
-// Focus management methods (simplified implementation)
+// Helper methods for focus management
 func (m *HAModel) setFocus() {
-	// Similar to other models
+	m.clearAllFocus()
+	
+	if len(m.fields) > 0 && m.focusedField < len(m.fields) {
+		m.focusField(m.fields[m.focusedField])
+	}
+}
+
+// setFocusIndex sets focus to a specific field index
+func (m *HAModel) setFocusIndex(index int) {
+	m.focusedField = index
+	m.setFocus()
+}
+
+// getFieldIndexFromY calculates which field was clicked based on Y coordinate
+func (m *HAModel) getFieldIndexFromY(y int) int {
+	// Skip calculation in simple mode as it shows different content
+	if m.session != nil && m.session.ConfigMode == utils.ConfigModeSimple {
+		return -1
+	}
+	
+	// Account for title and header (4 lines)
+	// "High Availability Configuration" + "\n\n" + "Configure high availability..." + "\n\n"
+	headerOffset := 4
+	
+	// Each field takes approximately 6 lines (label + box + \n\n)
+	fieldHeight := 6
+	
+	// Calculate which field was clicked
+	adjustedY := y - headerOffset
+	if adjustedY < 0 {
+		return -1
+	}
+	
+	fieldIndex := adjustedY / fieldHeight
+	
+	// Validate field index
+	if fieldIndex >= len(m.fields) {
+		return -1
+	}
+	
+	return fieldIndex
 }
 
 func (m *HAModel) clearAllFocus() {
-	// Similar to other models
+	if m.haEnabledToggle != nil {
+		m.haEnabledToggle.Blur()
+	}
+	if m.haVirtualIPInput != nil {
+		m.haVirtualIPInput.Blur()
+	}
+	if m.haLoadBalancerTypeSelect != nil {
+		m.haLoadBalancerTypeSelect.Blur()
+	}
+	if m.haLoadBalancerPortInput != nil {
+		m.haLoadBalancerPortInput.Blur()
+	}
+	if m.haEtcdSnapshotCountInput != nil {
+		m.haEtcdSnapshotCountInput.Blur()
+	}
+	if m.haEtcdHeartbeatInput != nil {
+		m.haEtcdHeartbeatInput.Blur()
+	}
 }
 
 func (m *HAModel) focusField(fieldName string) {
-	// Similar to other models
+	switch fieldName {
+	case "haEnabled":
+		if m.haEnabledToggle != nil {
+			m.haEnabledToggle.Focus()
+		}
+	case "haVirtualIP":
+		if m.haVirtualIPInput != nil {
+			m.haVirtualIPInput.Focus()
+		}
+	case "haLoadBalancerType":
+		if m.haLoadBalancerTypeSelect != nil {
+			m.haLoadBalancerTypeSelect.Focus()
+		}
+	case "haLoadBalancerPort":
+		if m.haLoadBalancerPortInput != nil {
+			m.haLoadBalancerPortInput.Focus()
+		}
+	case "haEtcdSnapshotCount":
+		if m.haEtcdSnapshotCountInput != nil {
+			m.haEtcdSnapshotCountInput.Focus()
+		}
+	case "haEtcdHeartbeat":
+		if m.haEtcdHeartbeatInput != nil {
+			m.haEtcdHeartbeatInput.Focus()
+		}
+	}
 }
 
 func (m *HAModel) nextField() {
-	// Similar to other models
+	if len(m.fields) > 0 && m.focusedField < len(m.fields)-1 {
+		m.focusedField++
+		m.setFocus()
+	}
 }
 
 func (m *HAModel) prevField() {
-	// Similar to other models
+	if m.focusedField > 0 {
+		m.focusedField--
+		m.setFocus()
+	}
 }
 
 func (m *HAModel) updateFocusedField(msg tea.Msg) tea.Cmd {
-	// Similar to other models
+	if len(m.fields) == 0 || m.focusedField >= len(m.fields) {
+		return nil
+	}
+	
+	fieldToUpdate := m.fields[m.focusedField]
+	switch fieldToUpdate {
+	case "haEnabled":
+		if m.haEnabledToggle != nil {
+			return m.haEnabledToggle.Update(msg)
+		}
+	case "haVirtualIP":
+		if m.haVirtualIPInput != nil {
+			return m.haVirtualIPInput.Update(msg)
+		}
+	case "haLoadBalancerType":
+		if m.haLoadBalancerTypeSelect != nil {
+			return m.haLoadBalancerTypeSelect.Update(msg)
+		}
+	case "haLoadBalancerPort":
+		if m.haLoadBalancerPortInput != nil {
+			return m.haLoadBalancerPortInput.Update(msg)
+		}
+	case "haEtcdSnapshotCount":
+		if m.haEtcdSnapshotCountInput != nil {
+			return m.haEtcdSnapshotCountInput.Update(msg)
+		}
+	case "haEtcdHeartbeat":
+		if m.haEtcdHeartbeatInput != nil {
+			return m.haEtcdHeartbeatInput.Update(msg)
+		}
+	}
 	return nil
 }

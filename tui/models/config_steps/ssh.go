@@ -75,7 +75,7 @@ func (m *SSHModel) InitWithConfig(session *utils.Session, template *utils.Cluste
 }
 
 // Update handles messages and user input
-func (m SSHModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *SSHModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 	
@@ -91,6 +91,18 @@ func (m SSHModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.updateFocusedField(msg)
 			if cmd != nil {
 				cmds = append(cmds, cmd)
+			}
+		}
+	
+	case tea.MouseMsg:
+		if msg.Type == tea.MouseLeft {
+			// Handle mouse click to focus fields
+			clickedFieldIndex := m.getFieldIndexFromY(msg.Y)
+			if clickedFieldIndex >= 0 && clickedFieldIndex < len(m.fields) {
+				// Only change focus if clicking a different field
+				if clickedFieldIndex != m.focusedField {
+					m.setFocusIndex(clickedFieldIndex)
+				}
 			}
 		}
 	}
@@ -189,6 +201,12 @@ func (m *SSHModel) setFocus() {
 	}
 }
 
+// setFocusIndex sets focus to a specific field index
+func (m *SSHModel) setFocusIndex(index int) {
+	m.focusedField = index
+	m.setFocus()
+}
+
 func (m *SSHModel) clearAllFocus() {
 	if m.sshPublicKeyInput != nil {
 		m.sshPublicKeyInput.Blur()
@@ -253,4 +271,29 @@ func (m *SSHModel) updateFocusedField(msg tea.Msg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// getFieldIndexFromY calculates which field was clicked based on Y coordinate
+func (m *SSHModel) getFieldIndexFromY(y int) int {
+	// Account for title and header (4 lines)
+	// "SSH Configuration" + "\n\n" + "Configure SSH access..." + "\n\n"
+	headerOffset := 4
+	
+	// Each field takes approximately 6 lines (label + box + \n\n)
+	fieldHeight := 6
+	
+	// Calculate which field was clicked
+	adjustedY := y - headerOffset
+	if adjustedY < 0 {
+		return -1
+	}
+	
+	fieldIndex := adjustedY / fieldHeight
+	
+	// Validate field index (SSH has 3 fields)
+	if fieldIndex >= len(m.fields) {
+		return -1
+	}
+	
+	return fieldIndex
 }

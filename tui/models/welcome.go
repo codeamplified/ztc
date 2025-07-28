@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"ztc-tui/colors"
@@ -58,6 +59,8 @@ const (
 type WelcomeModel struct {
 	Width             int
 	Height            int
+	viewport          viewport.Model
+	ready             bool
 	featuredTemplates []utils.TemplateInfo
 	advancedTemplates []utils.TemplateInfo
 	mode              ViewMode
@@ -76,8 +79,8 @@ type StateTransitionMsg struct {
 // NewWelcomeModel creates a new welcome model
 func NewWelcomeModel() WelcomeModel {
 	return WelcomeModel{
-		Width:             80,
-		Height:            24,
+		Width:             0, // Will be set by WindowSizeMsg
+		Height:            0, // Will be set by WindowSizeMsg
 		featuredTemplates: []utils.TemplateInfo{},
 		advancedTemplates: []utils.TemplateInfo{},
 		mode:              ViewFeatured,
@@ -122,9 +125,35 @@ type templatesLoadedMsg struct {
 	err      error
 }
 
+// currentSelectableCount returns the number of selectable items in the current mode
+func (m WelcomeModel) currentSelectableCount() int {
+	switch m.mode {
+	case ViewFeatured:
+		return len(m.featuredTemplates)
+	case ViewAdvanced:
+		return len(m.advancedTemplates)
+	case ViewConfigMode:
+		return 2 // Simple and Advanced
+	default:
+		return 0
+	}
+}
+
 // Update handles messages and user input
 func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
+	var cmd tea.Cmd
+	var cmds []tea.Cmd
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.Width = msg.Width
+		m.Height = msg.Height
+		if !m.ready {
+			m.viewport = viewport.New(m.Width, m.Height-10)
+			m.ready = true
+		} else {
+			m.viewport.Width = m.Width
+			m.viewport.Height = m.Height - 10
+		}
 	case templatesLoadedMsg:
 		if msg.err != nil {
 			m.err = msg.err
@@ -132,6 +161,22 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 		}
 		m.featuredTemplates = msg.featured
 		m.advancedTemplates = msg.advanced
+		
+		// Initialize viewport if not ready yet (fallback for missing WindowSizeMsg)
+		if !m.ready {
+			width := m.Width
+			height := m.Height
+			if width == 0 {
+				width = 80 // Fallback width
+			}
+			if height == 0 {
+				height = 24 // Fallback height
+			}
+			m.viewport = viewport.New(width, height-10) // Leave space for header/footer
+			m.ready = true
+		}
+		
+		m.viewport.SetContent(m.renderContent())
 		return m, nil
 
 	case tea.KeyMsg:
@@ -150,56 +195,35 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 				m.mode = ViewFeatured
 				m.selectedIndex = 0 // Reset selection
 			}
+			m.viewport.SetContent(m.renderContent())
 			return m, nil
 
-		case "up", "k":
+		case "up", "k", "left", "h":
 			if m.mode == ViewFeatured {
-				// Only toggle between featured templates (0 or 1)
 				m.selectedIndex = 0
 			} else if m.mode == ViewAdvanced {
-				// Navigate advanced list
 				if m.selectedIndex > 0 {
 					m.selectedIndex--
 				}
 			} else if m.mode == ViewConfigMode {
-				// Toggle between Simple (0) and Advanced (1)
 				m.selectedIndex = 0
 			}
+			m.viewport.SetContent(m.renderContent())
 			return m, nil
 
-		case "down", "j":
+		case "down", "j", "right", "l":
 			if m.mode == ViewFeatured {
-				// Only toggle between featured templates (0 or 1)
-				if len(m.featuredTemplates) > 1 {
+				if m.currentSelectableCount() > 1 {
 					m.selectedIndex = 1
 				}
 			} else if m.mode == ViewAdvanced {
-				// Navigate advanced list
-				if m.selectedIndex < len(m.advancedTemplates)-1 {
+				if m.selectedIndex < m.currentSelectableCount()-1 {
 					m.selectedIndex++
 				}
 			} else if m.mode == ViewConfigMode {
-				// Toggle between Simple (0) and Advanced (1)
 				m.selectedIndex = 1
 			}
-			return m, nil
-
-		case "left", "h":
-			if m.mode == ViewFeatured && len(m.featuredTemplates) > 1 {
-				m.selectedIndex = 0
-			} else if m.mode == ViewConfigMode {
-				// Toggle between Simple (0) and Advanced (1)
-				m.selectedIndex = 0
-			}
-			return m, nil
-
-		case "right", "l":
-			if m.mode == ViewFeatured && len(m.featuredTemplates) > 1 {
-				m.selectedIndex = 1
-			} else if m.mode == ViewConfigMode {
-				// Toggle between Simple (0) and Advanced (1)  
-				m.selectedIndex = 1
-			}
+			m.viewport.SetContent(m.renderContent())
 			return m, nil
 
 		case "esc", "backspace":
@@ -209,6 +233,7 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 				m.selectedIndex = 0
 				m.selectedTemplateID = ""
 			}
+			m.viewport.SetContent(m.renderContent())
 			return m, nil
 
 		case "enter":
@@ -230,6 +255,7 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 					m.selectedTemplateID = templateID
 					m.mode = ViewConfigMode
 					m.selectedIndex = 0 // Start with Simple mode selected
+					m.viewport.SetContent(m.renderContent())
 				}
 				return m, nil
 			} else if m.mode == ViewConfigMode {
@@ -256,30 +282,14 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 		}
 	}
 
-	return m, nil
+	m.viewport, cmd = m.viewport.Update(msg)
+	cmds = append(cmds, cmd)
+
+	return m, tea.Batch(cmds...)
 }
 
-// View renders the template selection UI
-func (m WelcomeModel) View() string {
+func (m WelcomeModel) renderContent() string {
 	var content strings.Builder
-
-	// Main Title
-	mainTitle := titleStyle.Render("Welcome to Zero Touch Cluster")
-	content.WriteString(mainTitle + "\n")
-
-	// Handle loading and error states
-	if m.err != nil {
-		errorMsg := helpStyle.Render(fmt.Sprintf("Error loading templates: %s", m.err.Error()))
-		content.WriteString(errorMsg + "\n")
-		return content.String()
-	}
-
-	if len(m.featuredTemplates) == 0 && len(m.advancedTemplates) == 0 {
-		loadingMsg := helpStyle.Render("Loading available templates...")
-		content.WriteString(loadingMsg + "\n")
-		return content.String()
-	}
-
 	// Show current mode and instructions
 	if m.mode == ViewFeatured {
 		subTitle := helpStyle.Render("Choose your cluster template. Press 'a' for advanced options.")
@@ -309,25 +319,70 @@ func (m WelcomeModel) View() string {
 				}
 			}
 		}
-		
+
 		if templateName != "" {
 			templateInfo := choiceTitleStyle.Render(fmt.Sprintf("Template: %s", templateName))
 			content.WriteString(templateInfo + "\n")
 		}
-		
+
 		subTitle := helpStyle.Render("Choose your configuration experience. Use arrow keys to select.")
 		content.WriteString(subTitle + "\n\n")
 		content.WriteString(m.renderConfigModeView())
 	}
+	return content.String()
+}
+
+// View renders the template selection UI
+func (m WelcomeModel) View() string {
+	if !m.ready {
+		// Check if we have templates loaded but viewport isn't ready
+		if len(m.featuredTemplates) > 0 || len(m.advancedTemplates) > 0 {
+			// Show a simple template list without viewport
+			content := "Welcome to Zero Touch Cluster\n\nAvailable Templates:\n"
+			for _, template := range m.featuredTemplates {
+				content += fmt.Sprintf("- %s (Featured): %s\n", template.Name, template.Description)
+			}
+			for _, template := range m.advancedTemplates {
+				content += fmt.Sprintf("- %s: %s\n", template.Name, template.Description)
+			}
+			content += "\nPress any key to continue..."
+			return content
+		}
+		return "Initializing..."
+	}
+	var content strings.Builder
+
+	// Main Title
+	mainTitle := titleStyle.Render("Welcome to Zero Touch Cluster")
+	content.WriteString(mainTitle + "\n")
+
+	// Handle loading and error states
+	if m.err != nil {
+		errorMsg := helpStyle.Render(fmt.Sprintf("Error loading templates: %s", m.err.Error()))
+		content.WriteString(errorMsg + "\n")
+		return content.String()
+	}
+
+	if len(m.featuredTemplates) == 0 && len(m.advancedTemplates) == 0 {
+		loadingMsg := helpStyle.Render("Loading available templates...")
+		content.WriteString(loadingMsg + "\n")
+		return content.String()
+	}
+
+	content.WriteString(m.viewport.View())
 
 	// Footer Help
 	var footer string
 	if m.mode == ViewFeatured {
-		footer = helpStyle.Render("Use arrow keys to select, Enter to confirm, 'a' for advanced, or 'q' to quit.")
+		if m.currentSelectableCount() > 1 {
+			footer = helpStyle.Render("↑/↓ Scroll • Use arrow keys to select, Enter to confirm, 'a' for advanced, or 'q' to quit.")
+		} else {
+			footer = helpStyle.Render("↑/↓ Scroll • Enter to confirm, 'a' for advanced, or 'q' to quit.")
+		}
 	} else if m.mode == ViewAdvanced {
-		footer = helpStyle.Render("Use up/down to select, Enter to confirm, 'a' for featured, or 'q' to quit.")
+		footer = helpStyle.Render("↑/↓ Scroll • Use up/down to select, Enter to confirm, 'a' for featured, or 'q' to quit.")
 	} else if m.mode == ViewConfigMode {
-		footer = helpStyle.Render("Use arrow keys to select, Enter to proceed, Esc to go back, or 'q' to quit.")
+		footer = helpStyle.Render("↑/↓ Scroll • Use arrow keys to select, Enter to proceed, Esc to go back, or 'q' to quit.")
 	}
 	content.WriteString("\n\n" + footer)
 
@@ -340,17 +395,35 @@ func (m WelcomeModel) renderFeaturedView() string {
 		return helpStyle.Render("No featured templates available.")
 	}
 
+	// Calculate box width based on available space
+	boxCount := len(m.featuredTemplates)
+	availableWidth := m.Width
+	if availableWidth == 0 {
+		availableWidth = 80 // Fallback
+	}
+	
+	// Account for margins and padding
+	marginPerBox := 4 // 2 chars margin on each side
+	paddingPerBox := 6 // 2 chars padding on each side + borders
+	totalSpacing := (marginPerBox + paddingPerBox) * boxCount
+	
+	// Calculate width for each box
+	boxWidth := (availableWidth - totalSpacing) / boxCount
+	if boxWidth < 30 {
+		boxWidth = 30 // Minimum width
+	}
+
 	var boxes []string
 	for i, template := range m.featuredTemplates {
-		templateTitle := choiceTitleStyle.Render(template.Name)
-		templateDesc := choiceDescStyle.Render(template.Description)
+		templateTitle := choiceTitleStyle.Copy().Width(boxWidth-4).Render(template.Name)
+		templateDesc := choiceDescStyle.Copy().Width(boxWidth-4).Render(template.Description)
 		templateContent := templateTitle + "\n" + templateDesc
 
 		var box string
 		if i == m.selectedIndex {
-			box = selectedChoiceBoxStyle.Render(templateContent)
+			box = selectedChoiceBoxStyle.Copy().Width(boxWidth).Render(templateContent)
 		} else {
-			box = choiceBoxStyle.Render(templateContent)
+			box = choiceBoxStyle.Copy().Width(boxWidth).Render(templateContent)
 		}
 		boxes = append(boxes, box)
 	}
@@ -388,9 +461,27 @@ func (m WelcomeModel) renderAdvancedView() string {
 
 // renderConfigModeView renders the configuration mode selection view (side-by-side boxes)
 func (m WelcomeModel) renderConfigModeView() string {
+	// Calculate box width based on available space
+	availableWidth := m.Width
+	if availableWidth == 0 {
+		availableWidth = 80 // Fallback
+	}
+	
+	// Two boxes side by side
+	boxCount := 2
+	marginPerBox := 4 // 2 chars margin on each side
+	paddingPerBox := 6 // 2 chars padding on each side + borders
+	totalSpacing := (marginPerBox + paddingPerBox) * boxCount
+	
+	// Calculate width for each box
+	boxWidth := (availableWidth - totalSpacing) / boxCount
+	if boxWidth < 35 {
+		boxWidth = 35 // Minimum width for config mode boxes
+	}
+
 	// Simple mode option
-	simpleTitle := choiceTitleStyle.Render("🚀 Simple Setup")
-	simpleDesc := choiceDescStyle.Render(
+	simpleTitle := choiceTitleStyle.Copy().Width(boxWidth-4).Render("🚀 Simple Setup")
+	simpleDesc := choiceDescStyle.Copy().Width(boxWidth-4).Render(
 		"Perfect for getting started quickly\n\n" +
 		"Configure only the essentials:\n" +
 		"• Cluster name\n" +
@@ -401,8 +492,8 @@ func (m WelcomeModel) renderConfigModeView() string {
 	simpleContent := simpleTitle + "\n" + simpleDesc
 
 	// Advanced mode option
-	advancedTitle := choiceTitleStyle.Render("⚙️  Advanced Configuration")
-	advancedDesc := choiceDescStyle.Render(
+	advancedTitle := choiceTitleStyle.Copy().Width(boxWidth-4).Render("⚙️  Advanced Configuration")
+	advancedDesc := choiceDescStyle.Copy().Width(boxWidth-4).Render(
 		"Full control over your cluster\n\n" +
 		"Configure everything:\n" +
 		"• Cluster & network settings\n" +
@@ -415,11 +506,11 @@ func (m WelcomeModel) renderConfigModeView() string {
 	// Apply selection styling
 	var simpleBox, advancedBox string
 	if m.selectedIndex == 0 {
-		simpleBox = selectedChoiceBoxStyle.Render(simpleContent)
-		advancedBox = choiceBoxStyle.Render(advancedContent)
+		simpleBox = selectedChoiceBoxStyle.Copy().Width(boxWidth).Render(simpleContent)
+		advancedBox = choiceBoxStyle.Copy().Width(boxWidth).Render(advancedContent)
 	} else {
-		simpleBox = choiceBoxStyle.Render(simpleContent)
-		advancedBox = selectedChoiceBoxStyle.Render(advancedContent)
+		simpleBox = choiceBoxStyle.Copy().Width(boxWidth).Render(simpleContent)
+		advancedBox = selectedChoiceBoxStyle.Copy().Width(boxWidth).Render(advancedContent)
 	}
 
 	// Join boxes horizontally

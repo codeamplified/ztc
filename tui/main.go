@@ -106,6 +106,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case models.StateTransitionMsg:
 		switch msg.To {
+		case "welcome":
+			m.state = welcomeView
+			// Re-initialize the welcome model to reset it to default state
+			m.welcome = models.NewWelcomeModel()
+			m.welcome.Width = m.width
+			m.welcome.Height = m.height
+			initCmd := m.welcome.Init()
+			return m, initCmd
+
 		case "config":
 			m.state = configView
 			// Store the selected configuration mode in session
